@@ -294,6 +294,13 @@ static void init_game(GameState *gs, const uint8_t *ram) {
     gs->player.vx      = (int8_t)RB(0xEA96);
     gs->player.vy      = (int8_t)RB(0xEA97);
 
+    /* Default player position if snapshot has no runtime data */
+    if (gs->player.x == 0 && gs->player.y == 0) {
+        gs->player.x    = 0x58;  /* room centre X */
+        gs->player.y    = 0x68;  /* room centre Y */
+        gs->player.attr = 0x47;  /* bright white */
+    }
+
     gs->current_room = gs->player.room;
 
     /* Room attributes from hardcoded table (ROM data at $A854) */
@@ -375,6 +382,77 @@ static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr
     uint8_t si = room_attrs[room_id].style;
     if (si >= 13) si = 0;
     return &room_styles[si];
+}
+
+/* Placeholder 16x18 player sprite (1bpp, 2 bytes per row, MSB first) */
+static const uint8_t placeholder_player_sprite[18][2] = {
+    {0x07, 0xE0}, /* head */
+    {0x0F, 0xF0},
+    {0x0F, 0xF0},
+    {0x07, 0xE0},
+    {0x1F, 0xF8}, /* shoulders */
+    {0x3F, 0xFC},
+    {0x3F, 0xFC}, /* body */
+    {0x3F, 0xFC},
+    {0x3F, 0xFC},
+    {0x1F, 0xF8},
+    {0x1F, 0xF8},
+    {0x0F, 0xF0}, /* waist */
+    {0x1B, 0xD8}, /* legs split */
+    {0x1B, 0xD8},
+    {0x1B, 0xD8},
+    {0x1B, 0xD8},
+    {0x1B, 0xD8},
+    {0x1B, 0xD8},
+};
+
+/*
+ * draw_sprite() — blit a 16-wide 1bpp sprite at ZX pixel coords (px, py).
+ * sprite_rows: array of [height][2] bytes, MSB first, 1=ink 0=paper/transparent.
+ * attr: ZX colour attribute for ink/paper colours.
+ * height: number of rows (typically 18 for player).
+ * transparent: if 1, skip paper-coloured pixels (don't overdraw floor).
+ */
+static void draw_sprite(SDL_Renderer *ren,
+                        const uint8_t sprite_rows[][2],
+                        int height,
+                        int px, int py,
+                        uint8_t attr,
+                        int transparent)
+{
+    int bright      = (attr & 0x40) ? 8 : 0;
+    SDL_Color ink   = zx_pal[(attr & 7)        | bright];
+    SDL_Color paper = zx_pal[((attr >> 3) & 7) | bright];
+
+    for (int row = 0; row < height; row++) {
+        uint16_t bits = ((uint16_t)sprite_rows[row][0] << 8) | sprite_rows[row][1];
+        for (int bit = 0; bit < 16; bit++) {
+            int set = (bits >> (15 - bit)) & 1;
+            if (!set && transparent) continue;
+            SDL_Color c = set ? ink : paper;
+            SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, 255);
+            SDL_Rect px_r = {
+                (px + bit) * SCALE,
+                (py + row)  * SCALE,
+                SCALE, SCALE
+            };
+            SDL_RenderFillRect(ren, &px_r);
+        }
+    }
+}
+
+/*
+ * render_player() — draw the player sprite at its current position.
+ * Uses placeholder sprite until Phase 8 extracts ROM sprite data.
+ */
+static void render_player(SDL_Renderer *ren, const GameState *gs) {
+    draw_sprite(ren,
+                placeholder_player_sprite,
+                18,
+                gs->player.x,
+                gs->player.y,
+                gs->player.attr ? gs->player.attr : 0x47,
+                1);
 }
 
 /*
@@ -483,6 +561,7 @@ int main(int argc, char *argv[]) {
 
         SDL_RenderClear(ren);
         render_room(ren, &gs);
+        render_player(ren, &gs);
         SDL_RenderPresent(ren);
 
         if (headless) {
