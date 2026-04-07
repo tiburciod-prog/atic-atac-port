@@ -989,6 +989,16 @@ static void update_creatures(GameState *gs) {
 static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         const RoomEntity *e = &gs->room_entities[i];
+        /* Render normal doors (0x01-0x03) as white/grey arched openings */
+        if (e->graphic >= 0x01 && e->graphic <= 0x03) {
+            SDL_SetRenderDrawColor(ren, 200, 200, 200, 255);
+            SDL_Rect dr = { e->x * SCALE, e->y * SCALE, 16 * SCALE, 16 * SCALE };
+            SDL_RenderDrawRect(ren, &dr);
+            SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
+            SDL_Rect inner = { (e->x + 3) * SCALE, (e->y + 2) * SCALE, 10 * SCALE, 14 * SCALE };
+            SDL_RenderFillRect(ren, &inner);
+            continue;
+        }
         /* Render locked doors (0x08-0x0B) as coloured outlines */
         if (e->graphic >= 0x08 && e->graphic <= 0x0B) {
             int bright = (e->attr & 0x40) ? 255 : 180;
@@ -1578,6 +1588,7 @@ int main(int argc, char *argv[]) {
                 gs.walk_frame = (gs.walk_frame + 1) & 3;
         }
 
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);  /* ZX border: black */
         SDL_RenderClear(ren);
         render_room(ren, &gs);
         render_items(ren, &gs);
