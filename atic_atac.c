@@ -290,6 +290,12 @@ typedef struct {
 } Entity;
 
 #define NUM_ROOMS 148
+#define MAX_ROOM_ENTITIES 16
+
+typedef struct {
+    uint8_t graphic, room, flags, x, y, attr, b6, b7;
+    uint16_t zx_addr; /* source ZX address of this entity (for door linking) */
+} RoomEntity;
 
 typedef struct {
     /* Player and weapon */
@@ -338,6 +344,10 @@ typedef struct {
 
     /* Room table: ZX addresses of each room's definition */
     uint16_t room_ptrs[NUM_ROOMS];  /* parsed from $757D */
+
+    /* Room entities parsed from room pointer list */
+    RoomEntity room_entities[MAX_ROOM_ENTITIES];
+    int num_room_entities;
 
 } GameState;
 
@@ -998,6 +1008,40 @@ static void render_weapon(SDL_Renderer *ren, const GameState *gs) {
 }
 
 /*
+ * parse_room_entities() — read entity list for gs->current_room from RAM.
+ * Each room_ptrs[room] points to a null-terminated list of 16-bit ZX addresses.
+ * Each address points to an 8-byte entity record in RAM.
+ */
+static void parse_room_entities(GameState *gs, const uint8_t *ram) {
+    gs->num_room_entities = 0;
+    uint16_t list_ptr = gs->room_ptrs[gs->current_room];
+    if (list_ptr < 0x4000 || list_ptr >= 0xFFFF) return;
+
+    /* Walk the pointer list; each entry is a 16-bit LE ZX address */
+    for (int n = 0; n < MAX_ROOM_ENTITIES * 2; n++) {
+        uint16_t idx = (uint16_t)(list_ptr - 0x4000u + (uint16_t)(n * 2));
+        if (idx + 1u >= 49152u) break;
+        uint16_t eptr = (uint16_t)(ram[idx] | (ram[idx + 1] << 8));
+        if (eptr == 0x0000) break; /* null terminator */
+        if (eptr < 0x4000u || eptr + 7u >= 0x10000u) continue;
+        uint16_t base = (uint16_t)(eptr - 0x4000u);
+        RoomEntity *e = &gs->room_entities[gs->num_room_entities];
+        e->graphic = ram[base + 0];
+        e->room    = ram[base + 1];
+        e->flags   = ram[base + 2];
+        e->x       = ram[base + 3];
+        e->y       = ram[base + 4];
+        e->attr    = ram[base + 5];
+        e->b6      = ram[base + 6];
+        e->b7      = ram[base + 7];
+        e->zx_addr = eptr;
+        gs->num_room_entities++;
+        if (gs->num_room_entities >= MAX_ROOM_ENTITIES) break;
+    }
+    fprintf(stdout, "room %02X: %d entities\n", gs->current_room, gs->num_room_entities);
+}
+
+/*
  * game_tick() — update game logic once per frame.
  * Energy drains over time; death/respawn handled here.
  */
@@ -1096,6 +1140,7 @@ int main(int argc, char *argv[]) {
     /* Init game state from snapshot */
     init_game(&gs, ram);
     parse_room_table(&gs, ram);
+    parse_room_entities(&gs, ram);
 
     /* SDL init */
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
