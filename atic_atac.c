@@ -939,11 +939,47 @@ int main(int argc, char *argv[]) {
             if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S])
                 { ny += 2; gs.walk_dir = 0; moved = 1; }
 
-            /* Clamp to room interior */
-            if (nx < left_bound)  nx = left_bound;
-            if (nx > right_bound) nx = right_bound;
-            if (ny < top_bound)   ny = top_bound;
-            if (ny > bot_bound)   ny = bot_bound;
+            /* Room transition: hitting a wall edge changes room */
+            int transitioned = 0;
+            if (nx < left_bound) {
+                /* Exit left → room - 1 */
+                uint8_t nr = (gs.current_room > 0) ? gs.current_room - 1 : NUM_ROOMS - 1;
+                gs.current_room = nr;
+                gs.room_style   = room_attrs[nr].style;
+                gs.room_attr    = room_attrs[nr].attr;
+                gs.num_creatures = 0;  /* clear creatures on room change */
+                nx = right_bound - 4;  /* enter from right */
+                transitioned = 1;
+            } else if (nx > right_bound) {
+                uint8_t nr = (gs.current_room < NUM_ROOMS - 1) ? gs.current_room + 1 : 0;
+                gs.current_room = nr;
+                gs.room_style   = room_attrs[nr].style;
+                gs.room_attr    = room_attrs[nr].attr;
+                gs.num_creatures = 0;
+                nx = left_bound + 4;   /* enter from left */
+                transitioned = 1;
+            }
+            if (!transitioned) {
+                if (ny < top_bound) {
+                    uint8_t nr = (gs.current_room >= 12) ? gs.current_room - 12 : gs.current_room;
+                    if (nr != gs.current_room) {
+                        gs.current_room = nr;
+                        gs.room_style   = room_attrs[nr].style;
+                        gs.room_attr    = room_attrs[nr].attr;
+                        gs.num_creatures = 0;
+                        ny = bot_bound - 4;
+                    } else { ny = top_bound; }
+                } else if (ny > bot_bound) {
+                    uint8_t nr = (gs.current_room + 12 < NUM_ROOMS) ? gs.current_room + 12 : gs.current_room;
+                    if (nr != gs.current_room) {
+                        gs.current_room = nr;
+                        gs.room_style   = room_attrs[nr].style;
+                        gs.room_attr    = room_attrs[nr].attr;
+                        gs.num_creatures = 0;
+                        ny = top_bound + 4;
+                    } else { ny = bot_bound; }
+                }
+            }
 
             gs.player.x = (uint8_t)nx;
             gs.player.y = (uint8_t)ny;
