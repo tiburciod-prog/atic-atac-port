@@ -349,6 +349,9 @@ typedef struct {
     RoomEntity room_entities[MAX_ROOM_ENTITIES];
     int num_room_entities;
 
+    /* Pointer to ZX RAM (for entity parsing on room transitions) */
+    const uint8_t *ram;
+
 } GameState;
 
 /*
@@ -1042,6 +1045,38 @@ static void parse_room_entities(GameState *gs, const uint8_t *ram) {
 }
 
 /*
+ * do_room_transition() — move player to destination room via a linked door.
+ * src_addr: ZX address of the door entity the player triggered.
+ */
+static void do_room_transition(GameState *gs, uint16_t src_addr) {
+    const uint8_t *ram = gs->ram;
+    if (!ram) return;
+
+    /* Linked door is at src_addr XOR 0x08 */
+    uint16_t dst_addr = (uint16_t)(src_addr ^ 0x08u);
+    if (dst_addr < 0x4000u || dst_addr + 7u >= 0x10000u) return;
+    uint16_t base = (uint16_t)(dst_addr - 0x4000u);
+    uint8_t dst_room  = ram[base + 1];
+    uint8_t dst_flags = ram[base + 2];
+    uint8_t dst_x     = ram[base + 3];
+    uint8_t dst_y     = ram[base + 4];
+
+    /* New player position from linked door coords + flags offset */
+    uint8_t new_x = (uint8_t)(dst_x + (dst_flags & 0x0Fu) * 2u);
+    uint8_t new_y = (uint8_t)(dst_y - (uint8_t)(((dst_flags >> 3) & 0x1Eu)));
+
+    gs->current_room  = dst_room;
+    gs->room_style    = room_attrs[dst_room].style;
+    gs->room_attr     = room_attrs[dst_room].attr;
+    gs->player.x      = new_x;
+    gs->player.y      = new_y;
+    gs->num_creatures = 0;  /* Re-parse entities for the new room */
+    parse_room_entities(gs, ram);
+    fprintf(stdout, "door transition: room %02X -> %02X player=(%02X,%02X)\n",
+            src_addr, dst_room, new_x, new_y);
+}
+
+/*
  * game_tick() — update game logic once per frame.
  * Energy drains over time; death/respawn handled here.
  */
@@ -1139,6 +1174,7 @@ int main(int argc, char *argv[]) {
 
     /* Init game state from snapshot */
     init_game(&gs, ram);
+    gs.ram = ram;
     parse_room_table(&gs, ram);
     parse_room_entities(&gs, ram);
 
@@ -1194,13 +1230,6 @@ int main(int argc, char *argv[]) {
         /* Player movement — arrow keys / WASD, 2px per frame */
         {
             const Uint8 *keys = SDL_GetKeyboardState(NULL);
-            const RoomStyle *rs = get_room_style(gs.current_room, NULL);
-            int cx = 0x58, cy = 0x68;
-            int left_bound  = cx - rs->w + 4;
-            int right_bound = cx + rs->w - 4 - 16; /* 16px sprite width */
-            int top_bound   = cy - rs->h + 4;
-            int bot_bound   = cy + rs->h - 4 - 18; /* 18px sprite height */
-
             int nx = gs.player.x;
             int ny = gs.player.y;
             int moved = 0;
@@ -1214,46 +1243,31 @@ int main(int argc, char *argv[]) {
             if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S])
                 { ny += 2; gs.walk_dir = 0; moved = 1; }
 
-            /* Room transition: hitting a wall edge changes room */
-            int transitioned = 0;
-            if (nx < left_bound) {
-                /* Exit left → room - 1 */
-                uint8_t nr = (gs.current_room > 0) ? gs.current_room - 1 : NUM_ROOMS - 1;
-                gs.current_room = nr;
-                gs.room_style   = room_attrs[nr].style;
-                gs.room_attr    = room_attrs[nr].attr;
-                gs.num_creatures = 0;  /* clear creatures on room change */
-                nx = right_bound - 4;  /* enter from right */
-                transitioned = 1;
-            } else if (nx > right_bound) {
-                uint8_t nr = (gs.current_room < NUM_ROOMS - 1) ? gs.current_room + 1 : 0;
-                gs.current_room = nr;
-                gs.room_style   = room_attrs[nr].style;
-                gs.room_attr    = room_attrs[nr].attr;
-                gs.num_creatures = 0;
-                nx = left_bound + 4;   /* enter from left */
-                transitioned = 1;
-            }
-            if (!transitioned) {
-                if (ny < top_bound) {
-                    uint8_t nr = (gs.current_room >= 12) ? gs.current_room - 12 : gs.current_room;
-                    if (nr != gs.current_room) {
-                        gs.current_room = nr;
-                        gs.room_style   = room_attrs[nr].style;
-                        gs.room_attr    = room_attrs[nr].attr;
-                        gs.num_creatures = 0;
-                        ny = bot_bound - 4;
-                    } else { ny = top_bound; }
-                } else if (ny > bot_bound) {
-                    uint8_t nr = (gs.current_room + 12 < NUM_ROOMS) ? gs.current_room + 12 : gs.current_room;
-                    if (nr != gs.current_room) {
-                        gs.current_room = nr;
-                        gs.room_style   = room_attrs[nr].style;
-                        gs.room_attr    = room_attrs[nr].attr;
-                        gs.num_creatures = 0;
-                        ny = top_bound + 4;
-                    } else { ny = bot_bound; }
+            /* Door-based room transitions: check proximity to door entities */
+            for (int di = 0; di < gs.num_room_entities; di++) {
+                const RoomEntity *re = &gs.room_entities[di];
+                if (re->graphic < 0x01 || re->graphic > 0x03) continue;
+                int ddx = nx - (int)re->x;
+                int ddy = ny - (int)re->y;
+                if (ddx*ddx + ddy*ddy < 144) { /* 12px trigger radius */
+                    do_room_transition(&gs, re->zx_addr);
+                    nx = gs.player.x;
+                    ny = gs.player.y;
+                    break;
                 }
+            }
+            /* Clamp to room interior if no transition triggered */
+            {
+                const RoomStyle *rs2 = get_room_style(gs.current_room, NULL);
+                int cx2 = 0x58, cy2 = 0x68;
+                int lb = cx2 - rs2->w + 4;
+                int rb = cx2 + rs2->w - 4 - 16;
+                int tb = cy2 - rs2->h + 4;
+                int bb = cy2 + rs2->h - 4 - 18;
+                if (nx < lb) nx = lb;
+                if (nx > rb) nx = rb;
+                if (ny < tb) ny = tb;
+                if (ny > bb) ny = bb;
             }
 
             gs.player.x = (uint8_t)nx;
