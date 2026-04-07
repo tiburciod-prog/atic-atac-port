@@ -315,6 +315,10 @@ typedef struct {
     /* Frame counter */
     uint32_t frame;
 
+    /* Creatures (max 3 active per room) */
+    Entity creatures[3];
+    int num_creatures;
+
     /* Walk animation */
     uint8_t walk_dir;    /* 0=down, 1=right, 2=left, 3=up */
     uint8_t walk_frame;  /* 0-3, cycles through walk animation */
@@ -715,6 +719,64 @@ static void render_player(SDL_Renderer *ren, const GameState *gs) {
                 1);
 }
 
+/* Spider placeholder sprite: 16x16, 1bpp */
+static const uint8_t spider_sprite[16][2] = {
+    {0x24, 0x24}, {0x18, 0x18}, {0x7E, 0x7E}, {0xFF, 0xFF},
+    {0xBD, 0xBD}, {0xFF, 0xFF}, {0x7E, 0x7E}, {0x18, 0x18},
+    {0x24, 0x24}, {0x00, 0x00}, {0x00, 0x00}, {0x00, 0x00},
+    {0x00, 0x00}, {0x00, 0x00}, {0x00, 0x00}, {0x00, 0x00},
+};
+
+/*
+ * spawn_creature() — add a creature to the room if < 3 active.
+ */
+static void spawn_creature(GameState *gs) {
+    if (gs->num_creatures >= 3) return;
+    Entity *e = &gs->creatures[gs->num_creatures++];
+    e->graphic = 0x5C;  /* Spider type */
+    e->room    = gs->current_room;
+    e->x       = 0x58;  /* room centre */
+    e->y       = 0x68;
+    e->attr    = 0x44;  /* bright green */
+    e->vx      = 0;
+    e->vy      = 0;
+    e->flags   = 0;
+}
+
+/*
+ * update_creatures() — simple chase AI: move each creature 1px toward player.
+ */
+static void update_creatures(GameState *gs) {
+    for (int i = 0; i < gs->num_creatures; i++) {
+        Entity *e = &gs->creatures[i];
+        if (e->room != gs->current_room) continue;
+        /* Move 1px toward player every 2 frames */
+        if (gs->frame % 2 != 0) continue;
+        int dx = (int)gs->player.x - (int)e->x;
+        int dy = (int)gs->player.y - (int)e->y;
+        if (dx >  1) e->x++;
+        else if (dx < -1) e->x--;
+        if (dy >  1) e->y++;
+        else if (dy < -1) e->y--;
+        /* Damage player on contact (within 8px) */
+        if (dx*dx + dy*dy < 64) {
+            if ((gs->frame % 16) == 0 && gs->energy >= 32)
+                gs->energy -= 32;
+        }
+    }
+}
+
+/*
+ * render_creatures() — draw all active creatures in current room.
+ */
+static void render_creatures(SDL_Renderer *ren, const GameState *gs) {
+    for (int i = 0; i < gs->num_creatures; i++) {
+        const Entity *e = &gs->creatures[i];
+        if (e->room != gs->current_room) continue;
+        draw_sprite(ren, spider_sprite, 16, e->x, e->y, e->attr, 1);
+    }
+}
+
 /*
  * game_tick() — update game logic once per frame.
  * Energy drains over time; death/respawn handled here.
@@ -723,6 +785,12 @@ static void game_tick(GameState *gs) {
     /* Energy drain: -1 every 16 frames */
     if ((gs->frame & 0x0Fu) == 0u && gs->energy > 0)
         gs->energy--;
+
+    /* Spawn a creature every 200 frames (max 3) */
+    if (gs->frame % 200 == 0) spawn_creature(gs);
+
+    /* Update creature AI */
+    update_creatures(gs);
 
     /* Death check */
     if (gs->energy == 0) {
@@ -889,6 +957,7 @@ int main(int argc, char *argv[]) {
         SDL_RenderClear(ren);
         render_room(ren, &gs);
         render_player(ren, &gs);
+        render_creatures(ren, &gs);
         render_hud(ren, &gs);
         SDL_RenderPresent(ren);
 
