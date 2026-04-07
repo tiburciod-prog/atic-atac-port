@@ -129,6 +129,8 @@ static int load_z80(const char *path, uint8_t *ram) {
  * pixels = ram[0x0000..0x17FF]  (6144 bytes, screen pixel data)
  * attrs  = ram[0x1800..0x1AFF]  (768 bytes,  colour attributes)
  */
+static void render_zx_screen(SDL_Texture *tex, const uint8_t *pixels, const uint8_t *attrs)
+    __attribute__((unused));
 static void render_zx_screen(SDL_Texture *tex, const uint8_t *pixels, const uint8_t *attrs) {
     void *tex_pixels;
     int pitch;
@@ -375,6 +377,44 @@ static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr
     return &room_styles[si];
 }
 
+/*
+ * render_room() — fill floor and draw walls for the current room.
+ * Must be called each frame before rendering sprites.
+ */
+static void render_room(SDL_Renderer *ren, const GameState *gs) {
+    const RoomStyle *rs = get_room_style(gs->current_room, NULL);
+
+    /* Room centre and interior bounds */
+    int cx = 0x58, cy = 0x68;
+    int left   = (cx - rs->w) * SCALE;
+    int right  = (cx + rs->w) * SCALE;
+    int top    = (cy - rs->h) * SCALE;
+    int bottom = (cy + rs->h) * SCALE;
+    int thick  = 4 * SCALE;
+
+    /* Decode ZX attribute → SDL colours */
+    uint8_t attr  = gs->room_attr;
+    int bright    = (attr & 0x40) ? 8 : 0;
+    SDL_Color ink  = zx_pal[(attr & 7) | bright];
+    SDL_Color paper= zx_pal[((attr >> 3) & 7) | bright];
+
+    /* Fill floor with paper colour */
+    SDL_SetRenderDrawColor(ren, paper.r, paper.g, paper.b, 255);
+    SDL_Rect floor_r = { left, top, right - left, bottom - top };
+    SDL_RenderFillRect(ren, &floor_r);
+
+    /* Draw walls with ink colour */
+    SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
+    SDL_Rect walls[4] = {
+        { left,        top - thick,   right - left,         thick              },  /* top    */
+        { left,        bottom,        right - left,         thick              },  /* bottom */
+        { left - thick, top - thick,  thick, bottom-top+2*thick               },  /* left   */
+        { right,       top - thick,   thick, bottom-top+2*thick               },  /* right  */
+    };
+    for (int i = 0; i < 4; i++)
+        SDL_RenderFillRect(ren, &walls[i]);
+}
+
 int main(int argc, char *argv[]) {
     int headless = 0;
     for (int i = 1; i < argc; i++) {
@@ -431,6 +471,7 @@ int main(int argc, char *argv[]) {
     }
 
     SDL_Rect dst = {0, 0, WIN_W, WIN_H};
+    (void)dst;  /* kept for future sprite blit */
 
     /* Main loop */
     while (gs.running) {
@@ -440,10 +481,8 @@ int main(int argc, char *argv[]) {
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) gs.running = 0;
         }
 
-        render_zx_screen(tex, ram, ram + 0x1800);
-
         SDL_RenderClear(ren);
-        SDL_RenderCopy(ren, tex, NULL, &dst);
+        render_room(ren, &gs);
         SDL_RenderPresent(ren);
 
         if (headless) {
