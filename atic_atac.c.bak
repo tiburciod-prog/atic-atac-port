@@ -77,55 +77,6 @@ static int decompress_z80(const uint8_t *src, size_t src_len, uint8_t *dst, size
 }
 
 /*
- * load_tap() — parse a ZX Spectrum .tap file and load all CODE blocks into ram[].
- * ram[] covers $4000-$FFFF. Returns number of blocks loaded, 0 on failure.
- */
-static int load_tap(const char *path, uint8_t *ram) {
-    FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "Cannot open TAP: %s\n", path); return 0; }
-    fseek(f, 0, SEEK_END); long fsize = ftell(f); rewind(f);
-    uint8_t *buf = malloc(fsize);
-    if (!buf) { fclose(f); return 0; }
-    if (fread(buf, 1, fsize, f) != (size_t)fsize) { free(buf); fclose(f); return 0; }
-    fclose(f);
-
-    int loaded = 0;
-    long pos = 0;
-    uint8_t last_hdr[19] = {0};
-    int have_hdr = 0;
-
-    while (pos + 2 <= fsize) {
-        uint16_t blen = (uint16_t)(buf[pos] | ((uint16_t)buf[pos+1] << 8));
-        pos += 2;
-        if (pos + blen > fsize) break;
-        uint8_t *block = buf + pos;
-        pos += blen;
-
-        if (blen == 19 && block[0] == 0x00) {
-            memcpy(last_hdr, block, 19);
-            have_hdr = 1;
-        } else if (blen > 1 && block[0] == 0xff && have_hdr) {
-            uint8_t  btype     = last_hdr[1];
-            uint16_t load_addr = (uint16_t)(last_hdr[14] | ((uint16_t)last_hdr[15] << 8));
-            uint8_t *payload   = block + 1;
-            uint16_t pay_len   = (uint16_t)(blen - 1);
-            if (btype == 3 && load_addr >= 0x4000) {
-                uint32_t ram_off = (uint32_t)load_addr - 0x4000u;
-                uint32_t copy   = pay_len;
-                if (ram_off + copy > (uint32_t)RAM_SIZE) copy = (uint32_t)RAM_SIZE - ram_off;
-                memcpy(ram + ram_off, payload, copy);
-                fprintf(stdout, "TAP: loaded %u bytes at $%04X\n", copy, load_addr);
-                loaded++;
-            }
-            have_hdr = 0;
-        }
-    }
-    free(buf);
-    if (loaded) fprintf(stdout, "TAP: %d block(s) loaded from %s\n", loaded, path);
-    return loaded;
-}
-
-/*
  * Load a .z80 v1 snapshot into ram[0..49151].
  * Returns 1 on success.
  */
@@ -556,11 +507,9 @@ int main(int argc, char *argv[]) {
     GameState gs;
     memset(&gs, 0, sizeof(gs));
 
-    /* Load game data: TAP preferred, fall back to .z80 snapshot */
-    if (!load_tap("ATIC_ATAC.TAP", ram)) {
-        if (!load_z80("atic_atac.z80", ram)) {
-            fprintf(stderr, "Using blank RAM (no valid snapshot)\n");
-        }
+    /* Load snapshot */
+    if (!load_z80("atic_atac.z80", ram)) {
+        fprintf(stderr, "Using blank RAM (no valid snapshot)\n");
     }
 
     /* Init game state from snapshot */
@@ -608,33 +557,6 @@ int main(int argc, char *argv[]) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) gs.running = 0;
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) gs.running = 0;
-        }
-
-        /* Player movement — arrow keys / WASD, 2px per frame */
-        {
-            const Uint8 *keys = SDL_GetKeyboardState(NULL);
-            const RoomStyle *rs = get_room_style(gs.current_room, NULL);
-            int cx = 0x58, cy = 0x68;
-            int left_bound  = cx - rs->w + 4;
-            int right_bound = cx + rs->w - 4 - 16; /* 16px sprite width */
-            int top_bound   = cy - rs->h + 4;
-            int bot_bound   = cy + rs->h - 4 - 18; /* 18px sprite height */
-
-            int nx = gs.player.x;
-            int ny = gs.player.y;
-            if (keys[SDL_SCANCODE_LEFT]  || keys[SDL_SCANCODE_A]) nx -= 2;
-            if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) nx += 2;
-            if (keys[SDL_SCANCODE_UP]    || keys[SDL_SCANCODE_W]) ny -= 2;
-            if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S]) ny += 2;
-
-            /* Clamp to room interior */
-            if (nx < left_bound)  nx = left_bound;
-            if (nx > right_bound) nx = right_bound;
-            if (ny < top_bound)   ny = top_bound;
-            if (ny > bot_bound)   ny = bot_bound;
-
-            gs.player.x = (uint8_t)nx;
-            gs.player.y = (uint8_t)ny;
         }
 
         SDL_RenderClear(ren);
