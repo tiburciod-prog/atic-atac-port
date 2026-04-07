@@ -162,6 +162,98 @@ static void render_zx_screen(SDL_Texture *tex, const uint8_t *pixels, const uint
     SDL_UnlockTexture(tex);
 }
 
+/* ── Entity & GameState ──────────────────────────────────────────────────── */
+
+typedef struct {
+    uint8_t graphic;    /* +0: sprite/type ID */
+    uint8_t room;       /* +1: room number 0-0x93 */
+    uint8_t flags;      /* +2: lower 4 bits = auto-walk counter */
+    uint8_t x;          /* +3: pixel X */
+    uint8_t y;          /* +4: pixel Y */
+    uint8_t attr;       /* +5: ZX colour attribute */
+    int8_t  vx;         /* +6: X velocity (signed) */
+    int8_t  vy;         /* +7: Y velocity (signed) */
+} Entity;
+
+typedef struct {
+    /* Player and weapon */
+    Entity  player;
+    Entity  weapon;
+
+    /* Current room */
+    uint8_t current_room;   /* 0-0x93 */
+    uint8_t room_attr;      /* current room colour attribute */
+    uint8_t room_style;     /* index into room styles table */
+
+    /* Variables from $5E00 region */
+    uint8_t lives;          /* $5E21 */
+    uint8_t energy;         /* $5E28, starts 0xF0 */
+    uint8_t score[3];       /* $5E2A: BCD score (3 bytes) */
+    uint8_t clock_h;        /* $5E3D */
+    uint8_t clock_m;        /* $5E3E */
+    uint8_t clock_s;        /* $5E3F */
+
+    /* Inventory (3 slots, 4 bytes each: ptr_lo, ptr_hi, graphic, attr) */
+    uint8_t inventory[3][4];  /* $5E30, $5E34, $5E38 */
+
+    /* Frame counter */
+    uint32_t frame;
+
+    /* Game running flag */
+    int running;
+} GameState;
+
+/*
+ * Read a byte from ZX RAM with bounds check.
+ * ZX addresses start at $4000; ram[] is indexed from 0.
+ */
+#define RB(addr) \
+    ((uint32_t)((addr) - 0x4000u) < (uint32_t)RAM_SIZE \
+        ? ram[(addr) - 0x4000u] \
+        : (fprintf(stderr, "OOB read: $%04X\n", (unsigned)(addr)), (uint8_t)0))
+
+static void init_game(GameState *gs, const uint8_t *ram) {
+    /* Player entity at $EA90 (8 bytes) */
+    gs->player.graphic = RB(0xEA90);
+    gs->player.room    = RB(0xEA91);
+    gs->player.flags   = RB(0xEA92);
+    gs->player.x       = RB(0xEA93);
+    gs->player.y       = RB(0xEA94);
+    gs->player.attr    = RB(0xEA95);
+    gs->player.vx      = (int8_t)RB(0xEA96);
+    gs->player.vy      = (int8_t)RB(0xEA97);
+
+    gs->current_room = gs->player.room;
+
+    /* Room attributes at $A854: 2 bytes per room (style, attr) */
+    uint32_t rap = 0xA854u + (uint32_t)gs->current_room * 2u;
+    gs->room_style = RB(rap);
+    gs->room_attr  = RB(rap + 1u);
+
+    /* Variables from $5E00 region */
+    gs->lives    = RB(0x5E21);
+    gs->energy   = RB(0x5E28);
+    gs->score[0] = RB(0x5E2A);
+    gs->score[1] = RB(0x5E2B);
+    gs->score[2] = RB(0x5E2C);
+    gs->clock_h  = RB(0x5E3D);
+    gs->clock_m  = RB(0x5E3E);
+    gs->clock_s  = RB(0x5E3F);
+
+    /* Inventory slots at $5E30, $5E34, $5E38 (4 bytes each) */
+    for (int s = 0; s < 4; s++) gs->inventory[0][s] = RB(0x5E30u + (uint32_t)s);
+    for (int s = 0; s < 4; s++) gs->inventory[1][s] = RB(0x5E34u + (uint32_t)s);
+    for (int s = 0; s < 4; s++) gs->inventory[2][s] = RB(0x5E38u + (uint32_t)s);
+
+    gs->frame   = 0;
+    gs->running = 1;
+
+    fprintf(stdout, "init_game: room=%02X energy=%02X lives=%d inv[0].graphic=%02X\n",
+        gs->current_room, gs->energy, gs->lives, gs->inventory[0][2]);
+}
+
+#undef RB
+
 int main(int argc, char *argv[]) {
     int headless = 0;
     for (int i = 1; i < argc; i++) {
@@ -172,11 +264,17 @@ int main(int argc, char *argv[]) {
     uint8_t *ram = calloc(RAM_SIZE, 1);
     if (!ram) { fprintf(stderr, "Out of memory\n"); return 1; }
 
+    /* Game state */
+    GameState gs;
+    memset(&gs, 0, sizeof(gs));
+
     /* Load snapshot */
     if (!load_z80("atic_atac.z80", ram)) {
         fprintf(stderr, "Using blank RAM (no valid snapshot)\n");
-        /* ram is already zeroed — will render black screen */
     }
+
+    /* Init game state from snapshot */
+    init_game(&gs, ram);
 
     /* SDL init */
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -213,12 +311,11 @@ int main(int argc, char *argv[]) {
     SDL_Rect dst = {0, 0, WIN_W, WIN_H};
 
     /* Main loop */
-    int running = 1;
-    while (running) {
+    while (gs.running) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) running = 0;
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) running = 0;
+            if (ev.type == SDL_QUIT) gs.running = 0;
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) gs.running = 0;
         }
 
         render_zx_screen(tex, ram, ram + 0x1800);
@@ -229,10 +326,12 @@ int main(int argc, char *argv[]) {
 
         if (headless) {
             fprintf(stdout, "Headless: frame rendered OK\n");
-            running = 0;
+            gs.running = 0;
         } else {
             SDL_Delay(1000 / FPS);
         }
+
+        gs.frame++;
     }
 
     SDL_DestroyTexture(tex);
