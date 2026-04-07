@@ -979,6 +979,19 @@ static void update_creatures(GameState *gs) {
 static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         const RoomEntity *e = &gs->room_entities[i];
+        /* Render locked doors (0x08-0x0B) as coloured outlines */
+        if (e->graphic >= 0x08 && e->graphic <= 0x0B) {
+            int bright = (e->attr & 0x40) ? 255 : 180;
+            int ci = e->attr & 0x07;
+            int r2 = (ci & 2) ? bright : 0;
+            int g2 = (ci & 4) ? bright : 0;
+            int b2 = (ci & 1) ? bright : 0;
+            SDL_SetRenderDrawColor(ren, (Uint8)r2, (Uint8)g2, (Uint8)b2, 255);
+            SDL_Rect dr = { e->x * SCALE, e->y * SCALE, 17 * SCALE, 17 * SCALE };
+            SDL_RenderDrawRect(ren, &dr);
+            SDL_RenderDrawRect(ren, &(SDL_Rect){e->x*SCALE+SCALE, e->y*SCALE+SCALE, 15*SCALE, 15*SCALE});
+            continue;
+        }
         if (e->graphic < 0x10 || e->graphic >= 0x80) continue;
         /* Decode ZX attr: ink = bits 0-2, bright = bit 6 */
         int bright = (e->attr & 0x40) ? 1 : 0;
@@ -1207,6 +1220,22 @@ static void parse_room_entities(GameState *gs, const uint8_t *ram) {
 }
 
 /*
+ * has_key_for_door() — check if player carries a key matching the door's colour.
+ * door_attr: ZX attr byte of the locked door entity.
+ * Key colour = door attr bits 0-2 (ink). Key in inventory has graphic==0x81 and same ink bits.
+ */
+static int has_key_for_door(const GameState *gs, uint8_t door_attr) {
+    uint8_t need_ink = door_attr & 0x07;
+    for (int s = 0; s < 3; s++) {
+        if (gs->inventory[s][2] == 0x81) {          /* graphic = key */
+            if ((gs->inventory[s][3] & 0x07) == need_ink)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+/*
  * do_room_transition() — move player to destination room via a linked door.
  * src_addr: ZX address of the door entity the player triggered.
  */
@@ -1424,10 +1453,18 @@ int main(int argc, char *argv[]) {
             /* Door-based room transitions: check proximity to door entities */
             for (int di = 0; di < gs.num_room_entities; di++) {
                 const RoomEntity *re = &gs.room_entities[di];
-                if (re->graphic < 0x01 || re->graphic > 0x03) continue;
+                int is_normal = (re->graphic >= 0x01 && re->graphic <= 0x03);
+                int is_locked = (re->graphic >= 0x08 && re->graphic <= 0x0B);
+                if (!is_normal && !is_locked) continue;
                 int ddx = nx - (int)re->x;
                 int ddy = ny - (int)re->y;
                 if (ddx*ddx + ddy*ddy < 144) { /* 12px trigger radius */
+                    if (is_locked && !has_key_for_door(&gs, re->attr)) {
+                        /* No key — block player at door position */
+                        nx = (int)re->x;
+                        ny = (int)re->y;
+                        break;
+                    }
                     do_room_transition(&gs, re->zx_addr);
                     nx = gs.player.x;
                     ny = gs.player.y;
