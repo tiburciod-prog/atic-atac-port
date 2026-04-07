@@ -358,11 +358,6 @@ static void init_game(GameState *gs, const uint8_t *ram) {
         gs->player.attr = 0x47;  /* bright white */
     }
 
-    /* Default HUD values if snapshot has no runtime data */
-    if (gs->energy == 0)  gs->energy = 0xF0;  /* full health */
-    if (gs->lives == 0)   gs->lives  = 3;
-    /* score stays 0 */
-
     gs->current_room = gs->player.room;
 
     /* Room attributes from hardcoded table (ROM data at $A854) */
@@ -388,6 +383,10 @@ static void init_game(GameState *gs, const uint8_t *ram) {
     for (int s = 0; s < 4; s++) gs->inventory[0][s] = RB(0x5E30u + (uint32_t)s);
     for (int s = 0; s < 4; s++) gs->inventory[1][s] = RB(0x5E34u + (uint32_t)s);
     for (int s = 0; s < 4; s++) gs->inventory[2][s] = RB(0x5E38u + (uint32_t)s);
+
+    /* Default HUD values if snapshot has no runtime data */
+    if (gs->energy == 0) gs->energy = 0xF0;
+    if (gs->lives  == 0) gs->lives  = 3;
 
     gs->frame   = 0;
     gs->running = 1;
