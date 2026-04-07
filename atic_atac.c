@@ -162,6 +162,30 @@ static void render_zx_screen(SDL_Texture *tex, const uint8_t *pixels, const uint
     SDL_UnlockTexture(tex);
 }
 
+/* ── Room Styles (ROM constants from $A982) ─────────────────────────────── */
+
+typedef struct {
+    uint8_t     w;    /* half-width from room centre (X=$58) */
+    uint8_t     h;    /* half-height from room centre (Y=$68) */
+    const char *name;
+} RoomStyle;
+
+static const RoomStyle room_styles[13] = {
+    { 0x38, 0x38, "Plain square"       },  /* 0 */
+    { 0x28, 0x28, "Cave square"        },  /* 1 */
+    { 0x38, 0x38, "Octagonal"          },  /* 2 */
+    { 0x38, 0x18, "Wide rectangle"     },  /* 3 */
+    { 0x18, 0x38, "Tall rectangle"     },  /* 4 */
+    { 0x10, 0x30, "Stairs bottom-high" },  /* 5 */
+    { 0x10, 0x30, "Stairs top-high"    },  /* 6 */
+    { 0x30, 0x10, "Stairs right-high"  },  /* 7 */
+    { 0x30, 0x10, "Stairs left-high"   },  /* 8 */
+    { 0x30, 0x18, "Wide cave"          },  /* 9 */
+    { 0x18, 0x30, "Tall cave"          },  /* 10 */
+    { 0x38, 0x38, "Final room"         },  /* 11 */
+    { 0x38, 0x38, "Trapdoor tunnel"    },  /* 12 */
+};
+
 /* ── Entity & GameState ──────────────────────────────────────────────────── */
 
 typedef struct {
@@ -207,9 +231,6 @@ typedef struct {
     /* Room table: ZX addresses of each room's definition */
     uint16_t room_ptrs[NUM_ROOMS];  /* parsed from $757D */
 
-    /* Room style dimensions (13 styles, from $A982) */
-    uint8_t style_w[13];  /* half-width from room centre */
-    uint8_t style_h[13];  /* half-height from room centre */
 } GameState;
 
 /*
@@ -281,17 +302,29 @@ static void parse_room_table(GameState *gs, const uint8_t *ram) {
         uint32_t a = 0x757Du + (uint32_t)i * 2u;
         gs->room_ptrs[i] = RW(a);
     }
-    for (int i = 0; i < 13; i++) {
-        uint32_t a = 0xA982u + (uint32_t)i * 6u;
-        gs->style_w[i] = RB2(a);
-        gs->style_h[i] = RB2(a + 1u);
-    }
-    fprintf(stdout, "parse_room_table: room[0]=$%04X room[147]=$%04X style[0]=%dx%d style[2]=%dx%d\n",
-        gs->room_ptrs[0], gs->room_ptrs[147],
-        gs->style_w[0], gs->style_h[0],
-        gs->style_w[2], gs->style_h[2]);
+    fprintf(stdout, "parse_room_table: room[0]=$%04X room[147]=$%04X\n",
+        gs->room_ptrs[0], gs->room_ptrs[147]);
+    fprintf(stdout, "room_styles[2]: w=%02X h=%02X (%s)\n",
+        room_styles[2].w, room_styles[2].h, room_styles[2].name);
 #undef RW
 #undef RB2
+}
+
+/* Returns room pointer for room_id, or 0 if out of bounds. */
+static uint16_t room_ptr(const GameState *gs, uint8_t room_id)
+    __attribute__((unused));
+static uint16_t room_ptr(const GameState *gs, uint8_t room_id) {
+    if (room_id >= NUM_ROOMS) return 0;
+    return gs->room_ptrs[room_id];
+}
+
+/* Stub: returns room style for a given room.
+ * Phase 5 will resolve room_id → style via the room attributes table. */
+static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr_table)
+    __attribute__((unused));
+static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr_table) {
+    (void)room_id; (void)room_attr_table;
+    return &room_styles[0];
 }
 
 int main(int argc, char *argv[]) {
