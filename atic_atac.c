@@ -1167,8 +1167,19 @@ static void update_weapon(GameState *gs) {
             gs->creatures[i] = gs->creatures[gs->num_creatures - 1];
             gs->num_creatures--;
             gs->weapon_active = 0;
-            /* Add 100 points (BCD) */
-            gs->score_val += 100;
+            /* Per-creature score (type from graphic & 0x1F) */
+            {
+                static const uint32_t score_table[22] = {
+                    100,100,100,100,  /* 0-3:  ghosts */
+                    150,150,150,150,  /* 4-7:  demons */
+                    200,200,200,200,  /* 8-11: mummies */
+                    250,250,250,250,  /* 12-15: bosses */
+                    300,300,300,300,300,300  /* 16-21: rare */
+                };
+                uint8_t ctype = gs->creatures[i].graphic & 0x1Fu;
+                if (ctype > 21u) ctype = 0;
+                gs->score_val += score_table[ctype];
+            }
             /* Pack back into BCD score[3] */
             uint32_t s = gs->score_val;
             gs->score[2] = (uint8_t)(((s / 10) % 10) << 4 | (s % 10));
@@ -1421,6 +1432,15 @@ static void render_room(SDL_Renderer *ren, const GameState *gs) {
     };
     for (int i = 0; i < 4; i++)
         SDL_RenderFillRect(ren, &walls[i]);
+
+    /* Trapdoor indicator: style 12 gets dark hatching across the floor */
+    if (room_attrs[gs->current_room].style == 12) {
+        SDL_SetRenderDrawColor(ren, 40, 40, 40, 255);
+        for (int tx = (cx - rs->w + 8) * SCALE; tx < (cx + rs->w - 8) * SCALE; tx += 16 * SCALE) {
+            SDL_Rect trap = { tx, (cy - 4) * SCALE, 8 * SCALE, 8 * SCALE };
+            SDL_RenderFillRect(ren, &trap);
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
