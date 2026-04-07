@@ -655,6 +655,49 @@ static void draw_digit(SDL_Renderer *ren, int digit, int px, int py,
     }
 }
 
+/* Wizard placeholder sprites: 16 frames [dir*4+frame], 18 rows, 2 bytes/row */
+/* All 16 frames identical placeholder -- robe shape */
+static const uint8_t wizard_sprites[16][18][2] = {
+    #define WIZ_FRAME \
+        {0x06,0x00},{0x0F,0x00},{0x0F,0x00},{0x06,0x00}, \
+        {0x1F,0x80},{0x3F,0xC0},{0x7F,0xE0},{0x7F,0xE0}, \
+        {0xFF,0xF0},{0xFF,0xF0},{0x7F,0xE0},{0x3F,0xC0}, \
+        {0x1F,0x80},{0x0F,0x00},{0x1B,0x80},{0x31,0x80}, \
+        {0x61,0x80},{0x43,0x00}
+    {WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},
+    {WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},
+    {WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},
+    {WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},{WIZ_FRAME},
+    #undef WIZ_FRAME
+};
+
+/* Serf placeholder sprites: 16 frames, 18 rows, 2 bytes/row */
+static const uint8_t serf_sprites[16][18][2] = {
+    #define SERF_FRAME \
+        {0x0C,0x00},{0x1E,0x00},{0x1E,0x00},{0x0C,0x00}, \
+        {0x3F,0x00},{0x7F,0x80},{0x7F,0x80},{0xFF,0xC0}, \
+        {0xFF,0xC0},{0x7F,0x80},{0x3F,0x00},{0x1E,0x00}, \
+        {0x3F,0x00},{0x6D,0x80},{0x4D,0x80},{0xC1,0x80}, \
+        {0x41,0x80},{0x61,0x80}
+    {SERF_FRAME},{SERF_FRAME},{SERF_FRAME},{SERF_FRAME},
+    {SERF_FRAME},{SERF_FRAME},{SERF_FRAME},{SERF_FRAME},
+    {SERF_FRAME},{SERF_FRAME},{SERF_FRAME},{SERF_FRAME},
+    {SERF_FRAME},{SERF_FRAME},{SERF_FRAME},{SERF_FRAME},
+    #undef SERF_FRAME
+};
+
+/* Fireball sprite (Wizard weapon): 8x8 */
+static const uint8_t fireball_sprite[8][2] = {
+    {0x18,0x00},{0x3C,0x00},{0x7E,0x00},{0xFF,0x00},
+    {0xFF,0x00},{0x7E,0x00},{0x3C,0x00},{0x18,0x00},
+};
+
+/* Spanner sprite (Serf weapon): 8x8 */
+static const uint8_t spanner_sprite[8][2] = {
+    {0xC3,0x00},{0xE7,0x00},{0x7E,0x00},{0x3C,0x00},
+    {0x3C,0x00},{0x7E,0x00},{0xE7,0x00},{0xC3,0x00},
+};
+
 /*
  * render_hud() — draw energy bar, score, and lives outside the room.
  */
@@ -713,19 +756,22 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
 }
 
 /*
- * render_player() — draw the animated Knight sprite at its current position.
+ * render_player() — draw the animated sprite at its current position.
  * Selects frame based on walk direction and animation cycle.
  */
 static void render_player(SDL_Renderer *ren, const GameState *gs) {
     static const int walk_cycle[4] = {0, 1, 2, 1};
     int sprite_idx = gs->walk_dir * 4 + walk_cycle[gs->walk_frame & 3];
-    draw_sprite(ren,
-                knight_sprites[sprite_idx],
-                18,
-                gs->player.x,
-                gs->player.y,
-                gs->player.attr ? gs->player.attr : 0x47,
-                1);
+    /* Pick sprite sheet and colour by character type */
+    const uint8_t (*sheet)[2];
+    uint8_t attr;
+    switch (gs->char_type) {
+        case 1:  sheet = wizard_sprites[sprite_idx]; attr = 0x45; break; /* cyan  */
+        case 2:  sheet = serf_sprites[sprite_idx];   attr = 0x43; break; /* green */
+        default: sheet = knight_sprites[sprite_idx]; attr = 0x47; break; /* white */
+    }
+    if (gs->player.attr) attr = gs->player.attr;
+    draw_sprite(ren, sheet, 18, gs->player.x, gs->player.y, attr, 1);
 }
 
 /* Spider placeholder sprite: 16x16, 1bpp */
@@ -883,7 +929,12 @@ static void fire_weapon(GameState *gs) {
     gs->weapon_room   = gs->current_room;
     gs->weapon.x      = gs->player.x;
     gs->weapon.y      = gs->player.y;
-    gs->weapon.attr   = 0x46;  /* bright yellow */
+    /* Colour and sprite vary by character */
+    switch (gs->char_type) {
+        case 1:  gs->weapon.attr = 0x44; break; /* Wizard: bright cyan  */
+        case 2:  gs->weapon.attr = 0x42; break; /* Serf:   bright red   */
+        default: gs->weapon.attr = 0x46; break; /* Knight: bright yellow */
+    }
     /* Velocity: 4px/frame in walk direction */
     static const int8_t dvx[4] = { 0, 4, -4, 0 };  /* down,right,left,up */
     static const int8_t dvy[4] = { 4, 0,  0,-4 };
@@ -932,12 +983,18 @@ static void update_weapon(GameState *gs) {
 }
 
 /*
- * render_weapon() — draw axe if in flight.
+ * render_weapon() — draw weapon if in flight.
  */
 static void render_weapon(SDL_Renderer *ren, const GameState *gs) {
     if (!gs->weapon_active) return;
     if (gs->weapon_room != gs->current_room) return;
-    draw_sprite(ren, axe_sprite, 8, gs->weapon.x, gs->weapon.y, gs->weapon.attr, 1);
+    const uint8_t (*ws)[2];
+    switch (gs->char_type) {
+        case 1:  ws = fireball_sprite; break;
+        case 2:  ws = spanner_sprite;  break;
+        default: ws = axe_sprite;      break;
+    }
+    draw_sprite(ren, ws, 8, gs->weapon.x, gs->weapon.y, gs->weapon.attr, 1);
 }
 
 /*
