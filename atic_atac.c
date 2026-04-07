@@ -332,6 +332,9 @@ typedef struct {
     uint8_t walk_dir;    /* 0=down, 1=right, 2=left, 3=up */
     uint8_t walk_frame;  /* 0-3, cycles through walk animation */
 
+    /* ACG key pieces collected */
+    int     keys_collected; /* 0-3 */
+
     /* Weapon state */
     int     weapon_active;  /* 1 = axe in flight */
     uint8_t weapon_room;    /* room axe was fired in */
@@ -754,6 +757,13 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
         SDL_SetRenderDrawColor(ren, 215, 0, 0, 255);
         SDL_Rect heart = { (4 + i * 7) * SCALE, 180 * SCALE, 5 * SCALE, 5 * SCALE };
         SDL_RenderFillRect(ren, &heart);
+    }
+
+    /* ── ACG key pieces collected (bottom-right, yellow squares) ── */
+    for (int i = 0; i < gs->keys_collected && i < 3; i++) {
+        SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
+        SDL_Rect kb = { (220 + i * 8) * SCALE, 180 * SCALE, 6 * SCALE, 6 * SCALE };
+        SDL_RenderFillRect(ren, &kb);
     }
 
     /* ── Clock (top-right corner, tiny digits) ── */
@@ -1219,6 +1229,58 @@ static void parse_room_entities(GameState *gs, const uint8_t *ram) {
     fprintf(stdout, "room %02X: %d entities\n", gs->current_room, gs->num_room_entities);
 }
 
+/* ACG key piece sprite: 8x8 1bpp */
+static const uint8_t acg_key_sprite[8][2] = {
+    {0x1C,0x00},{0x3E,0x00},{0x63,0x00},{0x41,0x00},
+    {0x63,0x00},{0x3E,0x00},{0x08,0x00},{0x1C,0x00},
+};
+
+/*
+ * render_items() — draw ACG key pieces visible in current room.
+ * Key pieces: graphic 0x5C in room_entities[], not yet collected.
+ */
+static void render_items(SDL_Renderer *ren, const GameState *gs) {
+    for (int i = 0; i < gs->num_room_entities; i++) {
+        const RoomEntity *e = &gs->room_entities[i];
+        if (e->graphic != 0x5C) continue;
+        draw_sprite(ren, acg_key_sprite, 8, e->x, e->y, 0x46, 1);
+    }
+}
+
+/*
+ * check_item_pickup() — collect ACG key piece if player is within 10px.
+ * Sets running=0 after collecting all 3 and reaching exit (graphic 0x24).
+ */
+static void check_item_pickup(GameState *gs) {
+    for (int i = 0; i < gs->num_room_entities; i++) {
+        RoomEntity *e = &gs->room_entities[i];
+        if (e->graphic != 0x5C) continue;
+        int dx = (int)gs->player.x - (int)e->x;
+        int dy = (int)gs->player.y - (int)e->y;
+        if (dx*dx + dy*dy < 100) {
+            /* Collect: mark by zeroing graphic so it won't trigger again */
+            e->graphic = 0x00;
+            gs->keys_collected++;
+            fprintf(stdout, "ACG key piece collected! (%d/3)\n", gs->keys_collected);
+            if (gs->keys_collected >= 3)
+                fprintf(stdout, "All 3 ACG keys! Find the exit (graphic 0x24)!\n");
+        }
+    }
+    /* Check exit */
+    if (gs->keys_collected >= 3) {
+        for (int i = 0; i < gs->num_room_entities; i++) {
+            const RoomEntity *e = &gs->room_entities[i];
+            if (e->graphic != 0x24) continue;
+            int dx = (int)gs->player.x - (int)e->x;
+            int dy = (int)gs->player.y - (int)e->y;
+            if (dx*dx + dy*dy < 144) {
+                fprintf(stdout, "YOU WIN! Score: %u\n", gs->score_val);
+                gs->running = 0;
+            }
+        }
+    }
+}
+
 /*
  * has_key_for_door() — check if player carries a key matching the door's colour.
  * door_attr: ZX attr byte of the locked door entity.
@@ -1294,6 +1356,9 @@ static void game_tick(GameState *gs) {
 
     /* Spawn a creature every 200 frames (max 3) */
     if (gs->frame % 200 == 0) spawn_creature(gs);
+
+    /* Check item pickups */
+    check_item_pickup(gs);
 
     /* Update weapon */
     update_weapon(gs);
@@ -1495,6 +1560,7 @@ int main(int argc, char *argv[]) {
 
         SDL_RenderClear(ren);
         render_room(ren, &gs);
+        render_items(ren, &gs);
         render_decorations(ren, &gs);
         render_player(ren, &gs);
         render_creatures(ren, &gs);
