@@ -1081,6 +1081,22 @@ static void do_room_transition(GameState *gs, uint16_t src_addr) {
  * Energy drains over time; death/respawn handled here.
  */
 static void game_tick(GameState *gs) {
+    /* Advance clock: 1 second every 50 frames (FPS=50) */
+    if (gs->frame % 50 == 0 && gs->frame > 0) {
+        gs->clock_s++;
+        if (gs->clock_s >= 60) {
+            gs->clock_s = 0;
+            gs->clock_m++;
+        }
+        if (gs->clock_m >= 60) {
+            gs->clock_m = 0;
+            gs->clock_h++;
+        }
+        if (gs->clock_h >= 24) {
+            gs->clock_h = 0;
+        }
+    }
+
     /* Energy drain: -1 every 16 frames */
     if ((gs->frame & 0x0Fu) == 0u && gs->energy > 0)
         gs->energy--;
