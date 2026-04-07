@@ -716,6 +716,34 @@ static void render_player(SDL_Renderer *ren, const GameState *gs) {
 }
 
 /*
+ * game_tick() — update game logic once per frame.
+ * Energy drains over time; death/respawn handled here.
+ */
+static void game_tick(GameState *gs) {
+    /* Energy drain: -1 every 16 frames */
+    if ((gs->frame & 0x0Fu) == 0u && gs->energy > 0)
+        gs->energy--;
+
+    /* Death check */
+    if (gs->energy == 0) {
+        if (gs->lives > 0)
+            gs->lives--;
+        if (gs->lives == 0) {
+            gs->running = 0;
+            fprintf(stdout, "GAME OVER \u2014 score: %02X%02X%02X\n",
+                gs->score[0], gs->score[1], gs->score[2]);
+        } else {
+            gs->energy     = 0xF0;
+            gs->player.x   = 0x58;
+            gs->player.y   = 0x68;
+            gs->walk_dir   = 0;
+            gs->walk_frame = 0;
+            fprintf(stdout, "Respawn: lives=%d\n", gs->lives);
+        }
+    }
+}
+
+/*
  * render_room() — fill floor and draw walls for the current room.
  * Must be called each frame before rendering sprites.
  */
@@ -872,6 +900,17 @@ int main(int argc, char *argv[]) {
         }
 
         gs.frame++;
+        game_tick(&gs);
+    }
+
+    /* Game over overlay: red tint for 2 seconds */
+    if (!headless && gs.energy == 0 && gs.lives == 0) {
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(ren, 200, 0, 0, 128);
+        SDL_Rect overlay = {0, 0, WIN_W, WIN_H};
+        SDL_RenderFillRect(ren, &overlay);
+        SDL_RenderPresent(ren);
+        SDL_Delay(2000);
     }
 
     SDL_DestroyTexture(tex);
