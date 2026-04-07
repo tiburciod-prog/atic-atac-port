@@ -175,6 +175,8 @@ typedef struct {
     int8_t  vy;         /* +7: Y velocity (signed) */
 } Entity;
 
+#define NUM_ROOMS 148
+
 typedef struct {
     /* Player and weapon */
     Entity  player;
@@ -201,6 +203,13 @@ typedef struct {
 
     /* Game running flag */
     int running;
+
+    /* Room table: ZX addresses of each room's definition */
+    uint16_t room_ptrs[NUM_ROOMS];  /* parsed from $757D */
+
+    /* Room style dimensions (13 styles, from $A982) */
+    uint8_t style_w[13];  /* half-width from room centre */
+    uint8_t style_h[13];  /* half-height from room centre */
 } GameState;
 
 /*
@@ -254,6 +263,37 @@ static void init_game(GameState *gs, const uint8_t *ram) {
 
 #undef RB
 
+/*
+ * parse_room_table() — read 148 room pointers from $757D
+ * and 13 room style dimensions from $A982.
+ */
+static void parse_room_table(GameState *gs, const uint8_t *ram) {
+#define RW(addr) \
+    ((uint32_t)((addr) - 0x4000u) + 1u < (uint32_t)RAM_SIZE \
+        ? (uint16_t)(ram[(addr)-0x4000u] | ((uint16_t)ram[(addr)-0x4000u+1u] << 8)) \
+        : (fprintf(stderr, "OOB word: $%04X\n", (unsigned)(addr)), (uint16_t)0))
+#define RB2(addr) \
+    ((uint32_t)((addr) - 0x4000u) < (uint32_t)RAM_SIZE \
+        ? ram[(addr) - 0x4000u] \
+        : (fprintf(stderr, "OOB byte: $%04X\n", (unsigned)(addr)), (uint8_t)0))
+
+    for (int i = 0; i < NUM_ROOMS; i++) {
+        uint32_t a = 0x757Du + (uint32_t)i * 2u;
+        gs->room_ptrs[i] = RW(a);
+    }
+    for (int i = 0; i < 13; i++) {
+        uint32_t a = 0xA982u + (uint32_t)i * 6u;
+        gs->style_w[i] = RB2(a);
+        gs->style_h[i] = RB2(a + 1u);
+    }
+    fprintf(stdout, "parse_room_table: room[0]=$%04X room[147]=$%04X style[0]=%dx%d style[2]=%dx%d\n",
+        gs->room_ptrs[0], gs->room_ptrs[147],
+        gs->style_w[0], gs->style_h[0],
+        gs->style_w[2], gs->style_h[2]);
+#undef RW
+#undef RB2
+}
+
 int main(int argc, char *argv[]) {
     int headless = 0;
     for (int i = 1; i < argc; i++) {
@@ -275,6 +315,7 @@ int main(int argc, char *argv[]) {
 
     /* Init game state from snapshot */
     init_game(&gs, ram);
+    parse_room_table(&gs, ram);
 
     /* SDL init */
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
