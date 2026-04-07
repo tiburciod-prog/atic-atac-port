@@ -315,6 +315,10 @@ typedef struct {
     /* Frame counter */
     uint32_t frame;
 
+    /* Walk animation */
+    uint8_t walk_dir;    /* 0=down, 1=right, 2=left, 3=up */
+    uint8_t walk_frame;  /* 0-3, cycles through walk animation */
+
     /* Game running flag */
     int running;
 
@@ -696,12 +700,14 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
 }
 
 /*
- * render_player() — draw the player sprite at its current position.
- * Uses placeholder sprite until Phase 8 extracts ROM sprite data.
+ * render_player() — draw the animated Knight sprite at its current position.
+ * Selects frame based on walk direction and animation cycle.
  */
 static void render_player(SDL_Renderer *ren, const GameState *gs) {
+    static const int walk_cycle[4] = {0, 1, 2, 1};
+    int sprite_idx = gs->walk_dir * 4 + walk_cycle[gs->walk_frame & 3];
     draw_sprite(ren,
-                knight_sprites[0],
+                knight_sprites[sprite_idx],
                 18,
                 gs->player.x,
                 gs->player.y,
@@ -827,10 +833,16 @@ int main(int argc, char *argv[]) {
 
             int nx = gs.player.x;
             int ny = gs.player.y;
-            if (keys[SDL_SCANCODE_LEFT]  || keys[SDL_SCANCODE_A]) nx -= 2;
-            if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) nx += 2;
-            if (keys[SDL_SCANCODE_UP]    || keys[SDL_SCANCODE_W]) ny -= 2;
-            if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S]) ny += 2;
+            int moved = 0;
+
+            if (keys[SDL_SCANCODE_LEFT]  || keys[SDL_SCANCODE_A])
+                { nx -= 2; gs.walk_dir = 2; moved = 1; }
+            if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D])
+                { nx += 2; gs.walk_dir = 1; moved = 1; }
+            if (keys[SDL_SCANCODE_UP]    || keys[SDL_SCANCODE_W])
+                { ny -= 2; gs.walk_dir = 3; moved = 1; }
+            if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S])
+                { ny += 2; gs.walk_dir = 0; moved = 1; }
 
             /* Clamp to room interior */
             if (nx < left_bound)  nx = left_bound;
@@ -840,6 +852,10 @@ int main(int argc, char *argv[]) {
 
             gs.player.x = (uint8_t)nx;
             gs.player.y = (uint8_t)ny;
+
+            /* Advance walk animation every 6 frames when moving */
+            if (moved && (gs.frame % 6 == 0))
+                gs.walk_frame = (gs.walk_frame + 1) & 3;
         }
 
         SDL_RenderClear(ren);
