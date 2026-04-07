@@ -323,6 +323,13 @@ typedef struct {
     uint8_t walk_dir;    /* 0=down, 1=right, 2=left, 3=up */
     uint8_t walk_frame;  /* 0-3, cycles through walk animation */
 
+    /* Weapon state */
+    int     weapon_active;  /* 1 = axe in flight */
+    uint8_t weapon_room;    /* room axe was fired in */
+
+    /* Score display (32-bit for easy increment) */
+    uint32_t score_val;
+
     /* Game running flag */
     int running;
 
@@ -776,6 +783,78 @@ static void render_creatures(SDL_Renderer *ren, const GameState *gs) {
     }
 }
 
+/* Knight's axe sprite: 8x8, 1bpp (spinning blade shape) */
+static const uint8_t axe_sprite[8][2] = {
+    {0x18, 0x00}, {0x3C, 0x00}, {0x7E, 0x00}, {0xFF, 0x00},
+    {0xFF, 0x00}, {0x7E, 0x00}, {0x3C, 0x00}, {0x18, 0x00},
+};
+
+/*
+ * fire_weapon() — launch axe from player position in walk_dir direction.
+ */
+static void fire_weapon(GameState *gs) {
+    if (gs->weapon_active) return;  /* already in flight */
+    gs->weapon_active = 1;
+    gs->weapon_room   = gs->current_room;
+    gs->weapon.x      = gs->player.x;
+    gs->weapon.y      = gs->player.y;
+    gs->weapon.attr   = 0x46;  /* bright yellow */
+    /* Velocity: 4px/frame in walk direction */
+    static const int8_t dvx[4] = { 0, 4, -4, 0 };  /* down,right,left,up */
+    static const int8_t dvy[4] = { 4, 0,  0,-4 };
+    gs->weapon.vx = dvx[gs->walk_dir];
+    gs->weapon.vy = dvy[gs->walk_dir];
+}
+
+/*
+ * update_weapon() — move axe, check creature collisions.
+ */
+static void update_weapon(GameState *gs) {
+    if (!gs->weapon_active) return;
+    if (gs->weapon_room != gs->current_room) { gs->weapon_active = 0; return; }
+
+    gs->weapon.x = (uint8_t)((int)gs->weapon.x + gs->weapon.vx);
+    gs->weapon.y = (uint8_t)((int)gs->weapon.y + gs->weapon.vy);
+
+    /* Deactivate if off-screen (ZX screen 0-255 x 0-191) */
+    if (gs->weapon.x > 240 || gs->weapon.y > 180) {
+        gs->weapon_active = 0;
+        return;
+    }
+
+    /* Hit detection vs creatures */
+    for (int i = 0; i < gs->num_creatures; i++) {
+        Entity *e = &gs->creatures[i];
+        if (e->room != gs->current_room) continue;
+        int dx = (int)gs->weapon.x - (int)e->x;
+        int dy = (int)gs->weapon.y - (int)e->y;
+        if (dx*dx + dy*dy < 144) {  /* 12px hit radius */
+            /* Kill creature: remove by swapping with last */
+            gs->creatures[i] = gs->creatures[gs->num_creatures - 1];
+            gs->num_creatures--;
+            gs->weapon_active = 0;
+            /* Add 100 points (BCD) */
+            gs->score_val += 100;
+            /* Pack back into BCD score[3] */
+            uint32_t s = gs->score_val;
+            gs->score[2] = (uint8_t)(((s / 10) % 10) << 4 | (s % 10));
+            gs->score[1] = (uint8_t)(((s / 1000) % 10) << 4 | ((s / 100) % 10));
+            gs->score[0] = (uint8_t)(((s / 100000) % 10) << 4 | ((s / 10000) % 10));
+            fprintf(stdout, "Kill! score=%u\n", gs->score_val);
+            break;
+        }
+    }
+}
+
+/*
+ * render_weapon() — draw axe if in flight.
+ */
+static void render_weapon(SDL_Renderer *ren, const GameState *gs) {
+    if (!gs->weapon_active) return;
+    if (gs->weapon_room != gs->current_room) return;
+    draw_sprite(ren, axe_sprite, 8, gs->weapon.x, gs->weapon.y, gs->weapon.attr, 1);
+}
+
 /*
  * game_tick() — update game logic once per frame.
  * Energy drains over time; death/respawn handled here.
@@ -787,6 +866,9 @@ static void game_tick(GameState *gs) {
 
     /* Spawn a creature every 200 frames (max 3) */
     if (gs->frame % 200 == 0) spawn_creature(gs);
+
+    /* Update weapon */
+    update_weapon(gs);
 
     /* Update creature AI */
     update_creatures(gs);
@@ -914,6 +996,7 @@ int main(int argc, char *argv[]) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) gs.running = 0;
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) gs.running = 0;
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_SPACE) fire_weapon(&gs);
         }
 
         /* Player movement — arrow keys / WASD, 2px per frame */
@@ -993,6 +1076,7 @@ int main(int argc, char *argv[]) {
         render_room(ren, &gs);
         render_player(ren, &gs);
         render_creatures(ren, &gs);
+        render_weapon(ren, &gs);
         render_hud(ren, &gs);
         SDL_RenderPresent(ren);
 
