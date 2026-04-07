@@ -835,6 +835,24 @@ static void update_creatures(GameState *gs) {
 }
 
 /*
+ * render_decorations() — draw room decoration entities (graphic 0x10-0x7F).
+ */
+static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
+    for (int i = 0; i < gs->num_room_entities; i++) {
+        const RoomEntity *e = &gs->room_entities[i];
+        if (e->graphic < 0x10 || e->graphic >= 0x80) continue;
+        /* Decode ZX attr: ink = bits 0-2, bright = bit 6 */
+        int bright = (e->attr & 0x40) ? 1 : 0;
+        int ci = e->attr & 0x07;
+        int idx = ci + (bright ? 8 : 0);
+        SDL_Color c = zx_pal[idx];
+        SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, 255);
+        SDL_Rect r = { e->x * SCALE, e->y * SCALE, 8 * SCALE, 8 * SCALE };
+        SDL_RenderFillRect(ren, &r);
+    }
+}
+
+/*
  * render_creatures() — draw all active creatures in current room.
  */
 static void render_creatures(SDL_Renderer *ren, const GameState *gs) {
@@ -1296,6 +1314,7 @@ int main(int argc, char *argv[]) {
 
         SDL_RenderClear(ren);
         render_room(ren, &gs);
+        render_decorations(ren, &gs);
         render_player(ren, &gs);
         render_creatures(ren, &gs);
         render_weapon(ren, &gs);
