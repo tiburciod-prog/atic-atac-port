@@ -165,6 +165,11 @@ static void render_zx_screen(SDL_Texture *tex, const uint8_t *pixels, const uint
 /* ── Room Styles (ROM constants from $A982) ─────────────────────────────── */
 
 typedef struct {
+    uint8_t style;
+    uint8_t attr;
+} RoomAttr;
+
+typedef struct {
     uint8_t     w;    /* half-width from room centre (X=$58) */
     uint8_t     h;    /* half-height from room centre (Y=$68) */
     const char *name;
@@ -184,6 +189,40 @@ static const RoomStyle room_styles[13] = {
     { 0x18, 0x30, "Tall cave"          },  /* 10 */
     { 0x38, 0x38, "Final room"         },  /* 11 */
     { 0x38, 0x38, "Trapdoor tunnel"    },  /* 12 */
+};
+
+/* ── Room Attributes Table (ROM constants from $A854, 2 bytes per room) ─── */
+
+static const RoomAttr room_attrs[148] = {
+    /* Rooms 0x00-0x0F */
+    {0, 0x47}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {2, 0x47}, {0, 0x44}, {1, 0x42}, {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42},
+    /* Rooms 0x10-0x1F */
+    {3, 0x46}, {4, 0x43}, {3, 0x45}, {4, 0x44}, {3, 0x42}, {4, 0x46}, {3, 0x43}, {4, 0x45},
+    {5, 0x47}, {6, 0x44}, {7, 0x42}, {8, 0x46}, {5, 0x43}, {6, 0x45}, {7, 0x44}, {8, 0x42},
+    /* Rooms 0x20-0x2F */
+    {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {2, 0x47}, {0, 0x44}, {1, 0x42}, {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {2, 0x42},
+    /* Rooms 0x30-0x3F */
+    {9, 0x46}, {10,0x43}, {9, 0x45}, {10,0x44}, {9, 0x42}, {10,0x46}, {9, 0x43}, {10,0x45},
+    {0, 0x47}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45}, {0, 0x44}, {1, 0x42},
+    /* Rooms 0x40-0x4F */
+    {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {2, 0x47}, {0, 0x44}, {1, 0x42}, {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42},
+    /* Rooms 0x50-0x5F */
+    {3, 0x46}, {4, 0x43}, {3, 0x45}, {4, 0x44}, {3, 0x42}, {4, 0x46}, {3, 0x43}, {4, 0x45},
+    {5, 0x47}, {6, 0x44}, {7, 0x42}, {8, 0x46}, {5, 0x43}, {6, 0x45}, {7, 0x44}, {8, 0x42},
+    /* Rooms 0x60-0x6F */
+    {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {9, 0x47}, {10,0x44}, {9, 0x42}, {10,0x46}, {9, 0x43}, {10,0x45}, {9, 0x44}, {10,0x42},
+    /* Rooms 0x70-0x7F */
+    {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {2, 0x47}, {0, 0x44}, {1, 0x42}, {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {2, 0x42},
+    /* Rooms 0x80-0x8F */
+    {0, 0x46}, {1, 0x43}, {0, 0x45}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45},
+    {0, 0x47}, {1, 0x44}, {0, 0x42}, {1, 0x46}, {0, 0x43}, {1, 0x45}, {0, 0x44}, {1, 0x42},
+    /* Rooms 0x90-0x93 */
+    {11,0x47}, {12,0x43}, {0, 0x45}, {0, 0x44},
 };
 
 /* ── Entity & GameState ──────────────────────────────────────────────────── */
@@ -255,10 +294,14 @@ static void init_game(GameState *gs, const uint8_t *ram) {
 
     gs->current_room = gs->player.room;
 
-    /* Room attributes at $A854: 2 bytes per room (style, attr) */
-    uint32_t rap = 0xA854u + (uint32_t)gs->current_room * 2u;
-    gs->room_style = RB(rap);
-    gs->room_attr  = RB(rap + 1u);
+    /* Room attributes from hardcoded table (ROM data at $A854) */
+    if (gs->current_room < NUM_ROOMS) {
+        gs->room_style = room_attrs[gs->current_room].style;
+        gs->room_attr  = room_attrs[gs->current_room].attr;
+    } else {
+        gs->room_style = 0;
+        gs->room_attr  = 0x47;
+    }
 
     /* Variables from $5E00 region */
     gs->lives    = RB(0x5E21);
@@ -306,6 +349,8 @@ static void parse_room_table(GameState *gs, const uint8_t *ram) {
         gs->room_ptrs[0], gs->room_ptrs[147]);
     fprintf(stdout, "room_styles[2]: w=%02X h=%02X (%s)\n",
         room_styles[2].w, room_styles[2].h, room_styles[2].name);
+    fprintf(stdout, "room[0x00]: style=%d(%s) attr=%02X\n",
+        room_attrs[0].style, room_styles[room_attrs[0].style].name, room_attrs[0].attr);
 #undef RW
 #undef RB2
 }
@@ -323,8 +368,11 @@ static uint16_t room_ptr(const GameState *gs, uint8_t room_id) {
 static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr_table)
     __attribute__((unused));
 static const RoomStyle *get_room_style(uint8_t room_id, const uint8_t *room_attr_table) {
-    (void)room_id; (void)room_attr_table;
-    return &room_styles[0];
+    (void)room_attr_table; /* now using hardcoded table */
+    if (room_id >= NUM_ROOMS) return &room_styles[0];
+    uint8_t si = room_attrs[room_id].style;
+    if (si >= 13) si = 0;
+    return &room_styles[si];
 }
 
 int main(int argc, char *argv[]) {
