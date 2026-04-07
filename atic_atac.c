@@ -559,6 +559,33 @@ int main(int argc, char *argv[]) {
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) gs.running = 0;
         }
 
+        /* Player movement — arrow keys / WASD, 2px per frame */
+        {
+            const Uint8 *keys = SDL_GetKeyboardState(NULL);
+            const RoomStyle *rs = get_room_style(gs.current_room, NULL);
+            int cx = 0x58, cy = 0x68;
+            int left_bound  = cx - rs->w + 4;
+            int right_bound = cx + rs->w - 4 - 16; /* 16px sprite width */
+            int top_bound   = cy - rs->h + 4;
+            int bot_bound   = cy + rs->h - 4 - 18; /* 18px sprite height */
+
+            int nx = gs.player.x;
+            int ny = gs.player.y;
+            if (keys[SDL_SCANCODE_LEFT]  || keys[SDL_SCANCODE_A]) nx -= 2;
+            if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) nx += 2;
+            if (keys[SDL_SCANCODE_UP]    || keys[SDL_SCANCODE_W]) ny -= 2;
+            if (keys[SDL_SCANCODE_DOWN]  || keys[SDL_SCANCODE_S]) ny += 2;
+
+            /* Clamp to room interior */
+            if (nx < left_bound)  nx = left_bound;
+            if (nx > right_bound) nx = right_bound;
+            if (ny < top_bound)   ny = top_bound;
+            if (ny > bot_bound)   ny = bot_bound;
+
+            gs.player.x = (uint8_t)nx;
+            gs.player.y = (uint8_t)ny;
+        }
+
         SDL_RenderClear(ren);
         render_room(ren, &gs);
         render_player(ren, &gs);
