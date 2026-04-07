@@ -350,6 +350,11 @@ static void init_game(GameState *gs, const uint8_t *ram) {
         gs->player.attr = 0x47;  /* bright white */
     }
 
+    /* Default HUD values if snapshot has no runtime data */
+    if (gs->energy == 0)  gs->energy = 0xF0;  /* full health */
+    if (gs->lives == 0)   gs->lives  = 3;
+    /* score stays 0 */
+
     gs->current_room = gs->player.room;
 
     /* Room attributes from hardcoded table (ROM data at $A854) */
@@ -601,6 +606,95 @@ static void draw_sprite(SDL_Renderer *ren,
     }
 }
 
+/* ── Minimal 4×6 pixel font (digits 0-9 only) ──────────────────────────── */
+/* Each digit: 6 rows × 4 bits (MSB=leftmost pixel), stored as uint8_t[6]  */
+static const uint8_t digit_font[10][6] = {
+    {0x6, 0x9, 0x9, 0x9, 0x9, 0x6}, /* 0 */
+    {0x2, 0x6, 0x2, 0x2, 0x2, 0x7}, /* 1 */
+    {0x6, 0x9, 0x1, 0x2, 0x4, 0xF}, /* 2 */
+    {0xE, 0x1, 0x6, 0x1, 0x1, 0xE}, /* 3 */
+    {0x9, 0x9, 0xF, 0x1, 0x1, 0x1}, /* 4 */
+    {0xF, 0x8, 0xE, 0x1, 0x1, 0xE}, /* 5 */
+    {0x3, 0x4, 0xE, 0x9, 0x9, 0x6}, /* 6 */
+    {0xF, 0x1, 0x2, 0x4, 0x4, 0x4}, /* 7 */
+    {0x6, 0x9, 0x6, 0x9, 0x9, 0x6}, /* 8 */
+    {0x6, 0x9, 0x9, 0x7, 0x1, 0x6}, /* 9 */
+};
+
+/*
+ * draw_digit() — render a single 4×6 digit at ZX pixel (px, py), scaled.
+ */
+static void draw_digit(SDL_Renderer *ren, int digit, int px, int py,
+                       uint8_t r, uint8_t g, uint8_t b) {
+    if (digit < 0 || digit > 9) return;
+    for (int row = 0; row < 6; row++) {
+        for (int col = 0; col < 4; col++) {
+            if ((digit_font[digit][row] >> (3 - col)) & 1) {
+                SDL_SetRenderDrawColor(ren, r, g, b, 255);
+                SDL_Rect rc = { (px + col) * SCALE, (py + row) * SCALE, SCALE, SCALE };
+                SDL_RenderFillRect(ren, &rc);
+            }
+        }
+    }
+}
+
+/*
+ * render_hud() — draw energy bar, score, and lives outside the room.
+ */
+static void render_hud(SDL_Renderer *ren, const GameState *gs) {
+    /* ── Energy bar (right side, ZX coords X=220-228, Y=24-176) ── */
+    int bar_x = 220, bar_y = 24, bar_w = 8, bar_h = 152;
+    /* Background: dark grey */
+    SDL_SetRenderDrawColor(ren, 64, 64, 64, 255);
+    SDL_Rect bar_bg = { bar_x * SCALE, bar_y * SCALE, bar_w * SCALE, bar_h * SCALE };
+    SDL_RenderFillRect(ren, &bar_bg);
+    /* Fill: bright green proportional to energy */
+    int fill_h = (int)((gs->energy * bar_h) / 0xF0);
+    if (fill_h > 0) {
+        SDL_SetRenderDrawColor(ren, 0, 215, 0, 255);
+        SDL_Rect bar_fill = {
+            bar_x * SCALE,
+            (bar_y + bar_h - fill_h) * SCALE,
+            bar_w * SCALE,
+            fill_h * SCALE
+        };
+        SDL_RenderFillRect(ren, &bar_fill);
+    }
+
+    /* ── Score (top strip, 6 BCD digits centred at X=84, Y=4) ── */
+    /* BCD score is 3 bytes: score[0]=tens-of-thousands/thousands,
+       score[1]=hundreds/tens, score[2]=ones (low nibble unused in original but safe) */
+    int digits[6];
+    digits[0] = (gs->score[0] >> 4) & 0xF;
+    digits[1] =  gs->score[0]       & 0xF;
+    digits[2] = (gs->score[1] >> 4) & 0xF;
+    digits[3] =  gs->score[1]       & 0xF;
+    digits[4] = (gs->score[2] >> 4) & 0xF;
+    digits[5] =  gs->score[2]       & 0xF;
+    int score_x = 70;  /* left edge of 6-digit score display */
+    for (int i = 0; i < 6; i++) {
+        draw_digit(ren, digits[i] % 10, score_x + i * 5, 4, 255, 255, 255);
+    }
+
+    /* ── Lives (bottom-left, red squares 5×5px each) ── */
+    for (int i = 0; i < gs->lives && i < 5; i++) {
+        SDL_SetRenderDrawColor(ren, 215, 0, 0, 255);
+        SDL_Rect heart = { (4 + i * 7) * SCALE, 180 * SCALE, 5 * SCALE, 5 * SCALE };
+        SDL_RenderFillRect(ren, &heart);
+    }
+
+    /* ── Clock (top-right corner, tiny digits) ── */
+    int clk_digits[6] = {
+        gs->clock_h / 10, gs->clock_h % 10,
+        gs->clock_m / 10, gs->clock_m % 10,
+        gs->clock_s / 10, gs->clock_s % 10,
+    };
+    for (int i = 0; i < 6; i++) {
+        int cx = 192 + i * 5 + (i >= 2 ? 2 : 0) + (i >= 4 ? 2 : 0); /* separators */
+        draw_digit(ren, clk_digits[i] % 10, cx, 4, 0, 215, 215);
+    }
+}
+
 /*
  * render_player() — draw the player sprite at its current position.
  * Uses placeholder sprite until Phase 8 extracts ROM sprite data.
@@ -751,6 +845,7 @@ int main(int argc, char *argv[]) {
         SDL_RenderClear(ren);
         render_room(ren, &gs);
         render_player(ren, &gs);
+        render_hud(ren, &gs);
         SDL_RenderPresent(ren);
 
         if (headless) {
