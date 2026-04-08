@@ -1301,7 +1301,7 @@ static void draw_door_frame(SDL_Renderer *ren, int dx, int dy, SDL_Color c, int 
         SDL_RenderDrawLine(ren, (dx+16+bw)*s,(dy+16-bh)*s, (dx+16+bw)*s, (dy+16)*s);
     } else {
         /* Vertical door (on left/right wall edge): brackets left and right */
-        int bw = 4, bh = 6;
+        int bw = 4;
         /* left bracket: ⌐ shape */
         SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         (dx-bw)*s,   (dy+16)*s); /* vertical */
         SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         dx*s,        dy*s);      /* top horizontal */
