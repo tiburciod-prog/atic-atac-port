@@ -1949,13 +1949,12 @@ static void game_tick(GameState *gs) {
 static int bbc_to_sdl_x(int bx) { return (int)(bx * SCREEN_W * SCALE / 120); }
 static int bbc_to_sdl_y(int by) { return by * SCALE; }
 
-/* draw_wall_lines() — draw vector lines for a room style using BBC Micro wall data.
- * Wall data format: {x, y, length, angle} each in BBC coords.
- * Angle → (dx,dy) per step using the delta tables.
+/* draw_wall_lines() — draw thick vector lines for room walls.
+ * Each line is drawn 3× with SCALE-pixel offsets to produce a thick wall appearance.
+ * BBC coords → SDL: x*SCREEN_W*SCALE/120, y*SCALE
  */
 static void draw_wall_lines(SDL_Renderer *ren, SDL_Color c,
                             const uint8_t data[][4], int count) {
-    /* dx/dy per angle index (0-31) derived from BBC disassembly delta tables */
     static const int8_t adx[32] = {
          1, 0, 1, 1, 1, 0, 0, 0,  0,-1,-1,-1,-1,-1,-1,-1,
         -1, 1, 1, 1, 1, 1, 1, 1,  0, 0, 0, 0,-1,-1,-1, 0
@@ -1966,37 +1965,43 @@ static void draw_wall_lines(SDL_Renderer *ren, SDL_Color c,
     };
     SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, 255);
     for (int i = 0; i < count; i++) {
-        int bx  = data[i][0];
-        int by  = data[i][1];
+        int bx0 = data[i][0];
+        int by0 = data[i][1];
         int len = data[i][2];
         int ang = data[i][3] & 0x1F;
         int dx  = adx[ang];
         int dy  = ady[ang];
-        int ex  = bx + dx * len;
-        int ey  = by + dy * len;
-        SDL_RenderDrawLine(ren,
-            bbc_to_sdl_x(bx), bbc_to_sdl_y(by),
-            bbc_to_sdl_x(ex), bbc_to_sdl_y(ey));
+        int sx0 = bbc_to_sdl_x(bx0);
+        int sy0 = bbc_to_sdl_y(by0);
+        int sx1 = bbc_to_sdl_x(bx0 + dx * len);
+        int sy1 = bbc_to_sdl_y(by0 + dy * len);
+        /* Draw SCALE parallel lines (perpendicular offsets) for thickness */
+        for (int t = 0; t < SCALE; t++) {
+            int ox = (dy != 0) ? t : 0;
+            int oy = (dx != 0) ? t : 0;
+            SDL_RenderDrawLine(ren, sx0+ox, sy0+oy, sx1+ox, sy1+oy);
+        }
     }
 }
 
-/* Room wall data tables — from BBC Micro disassembly (matches ZX original geometry) */
-static const uint8_t walls_square[6][4] = {
-    {0x00,0x00,0x77,0x00}, {0x11,0x1F,0x55,0x00},
+/* Wall line data — from BBC Micro disassembly (LINES ONLY, not rect entries) */
+static const uint8_t walls_0[4][4] = {
+    /* plain square: 4 corner cuts */
     {0x77,0x00,0x20,0x0A}, {0x01,0x00,0x1F,0x06},
     {0x01,0xBF,0x1F,0x1A}, {0x77,0xBF,0x20,0x16},
 };
-static const uint8_t walls_tall[6][4] = {
-    {0x16,0x00,0x4B,0x00}, {0x27,0x1F,0x29,0x00},
+static const uint8_t walls_1[4][4] = {
+    /* tall: 4 corner cuts */
     {0x17,0x00,0x1F,0x06}, {0x17,0xBF,0x1F,0x1A},
     {0x61,0xBF,0x1F,0x16}, {0x61,0x00,0x1F,0x0A},
 };
-static const uint8_t walls_wide[6][4] = {
-    {0x00,0x1C,0x77,0x00}, {0x11,0x3B,0x55,0x00},
+static const uint8_t walls_2[4][4] = {
+    /* wide: 4 corner cuts */
     {0x01,0x1C,0x1F,0x06}, {0x77,0x1C,0x1F,0x0A},
     {0x01,0xA3,0x1F,0x1A}, {0x77,0xA3,0x1F,0x16},
 };
-static const uint8_t walls_octagon[24][4] = {
+static const uint8_t walls_3[24][4] = {
+    /* octagon: 24 lines */
     {0x11,0x35,0x54,0x08}, {0x66,0x35,0x54,0x08},
     {0x1B,0x1F,0x40,0x00}, {0x1B,0xA0,0x40,0x00},
     {0x13,0xBF,0x50,0x00}, {0x13,0x00,0x50,0x00},
@@ -2010,17 +2015,18 @@ static const uint8_t walls_octagon[24][4] = {
     {0x11,0x36,0x10,0x14}, {0x77,0x9A,0x10,0x14},
     {0x66,0x36,0x10,0x1C}, {0x00,0x9A,0x10,0x1C},
 };
+/* Types 4-10 reuse the nearest matching style */
 
 /*
- * draw_room_outline() — draw vector wall lines for this room style.
+ * draw_room_outline() — draw the room's wall lines in the room ink colour.
  */
 static void draw_room_outline(SDL_Renderer *ren, int style, SDL_Color c) {
     switch (style) {
-        case 0: draw_wall_lines(ren, c, walls_square,  6); break;
-        case 1: draw_wall_lines(ren, c, walls_tall,    6); break;
-        case 2: draw_wall_lines(ren, c, walls_wide,    6); break;
-        case 3: draw_wall_lines(ren, c, walls_octagon, 24); break;
-        default: draw_wall_lines(ren, c, walls_square, 6); break;
+        case 0: draw_wall_lines(ren, c, walls_0,  4); break;
+        case 1: draw_wall_lines(ren, c, walls_1,  4); break;
+        case 2: draw_wall_lines(ren, c, walls_2,  4); break;
+        case 3: draw_wall_lines(ren, c, walls_3, 24); break;
+        default: draw_wall_lines(ren, c, walls_0, 4); break;
     }
 }
 
@@ -2036,37 +2042,54 @@ static void render_room(SDL_Renderer *ren, const GameState *gs) {
     int bright    = (attr & 0x40) ? 8 : 0;
     SDL_Color ink  = zx_pal[(attr & 7) | bright];
 
-    /* Step 1: Fill entire game area with wall (ink) colour */
-    SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
+    /* ZX Spectrum rendering:
+     * 1. Fill game area black
+     * 2. Draw the outer room border rect outline (thick coloured rectangle)
+     * 3. Draw inner floor rect outline (thick coloured rectangle)
+     * 4. Draw corner/diagonal detail lines
+     * Result: thick coloured rectangular outlines on black = castle walls */
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_Rect game_area = { 0, 0, WIN_W, WIN_H };
     SDL_RenderFillRect(ren, &game_area);
 
-    /* Step 2: Clear floor interior to black using room_sizes table.
-     * floor_rects[style]: {sdl_x, sdl_y, sdl_w, sdl_h} derived from BBC room_sizes.
-     * BBC coords → SDL: x * SCREEN_W*SCALE/120, y * SCALE */
-    /* Floor cut-out rectangles from BBC wall data (2nd RECT entry = floor interior).
-     * BBC: RECT (x,y,w,h) → SDL: x*256*SCALE/120, y*SCALE, w*256*SCALE/120, h*SCALE
-     * SCALE=3, 256*3/120 = 6.4 */
-    static const int floor_rects[11][4] = {
-        {108, 93, 544, 387},  /* 0: plain square  BBC (17,31,85,129) */
-        {249, 93, 262, 387},  /* 1: tall          BBC (39,31,41,129) */
-        {108,177, 544, 219},  /* 2: wide          BBC (17,59,85, 73) */
-        {108, 93, 544, 387},  /* 3: octagon       (all lines, use square fallback) */
-        {108, 93, 544, 387},  /* 4: cavern square (fallback) */
-        {249, 93, 262, 387},  /* 5: cavern tall   (fallback) */
-        {108,177, 544, 219},  /* 6: cavern wide   (fallback) */
-        {249, 93, 262, 387},  /* 7: stairs vert   (same as tall) */
-        {108,177, 544, 219},  /* 8: stairs horiz  (same as wide) */
-        {108, 93, 544, 387},  /* 9: wide cave     (same as square) */
-        {249, 93, 262, 387},  /* 10: tall cave    (same as tall) */
+    /* floor_outline[style]: {bbc_x, bbc_y, bbc_w, bbc_h} of the inner rect */
+    static const int floor_outline[11][4] = {
+        {17,31,85,129}, /* 0: plain square BBC RECT (17,31,85,129) */
+        {39,31,41,129}, /* 1: tall BBC RECT (39,31,41,129) */
+        {17,59,85, 73}, /* 2: wide BBC RECT (17,59,85, 73) */
+        {17,31,85,129}, /* 3: octagon (fallback) */
+        {17,31,85,129}, /* 4 fallback */
+        {39,31,41,129}, /* 5 fallback */
+        {17,59,85, 73}, /* 6 fallback */
+        {39,31,41,129}, /* 7 fallback */
+        {17,59,85, 73}, /* 8 fallback */
+        {17,31,85,129}, /* 9 fallback */
+        {39,31,41,129}, /* 10 fallback */
     };
     int si = (style_idx >= 0 && style_idx <= 10) ? style_idx : 0;
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_Rect floor_r = { floor_rects[si][0], floor_rects[si][1],
-                         floor_rects[si][2], floor_rects[si][3] };
-    SDL_RenderFillRect(ren, &floor_r);
+    int fo_x = floor_outline[si][0];
+    int fo_y = floor_outline[si][1];
+    int fo_w = floor_outline[si][2];
+    int fo_h = floor_outline[si][3];
 
-    /* Step 3: Draw decorative vector lines over the wall band (inner detail lines) */
+    /* Draw outer border rect and inner floor rect outline (thick) */
+    SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
+    for (int t = 0; t < SCALE; t++) {
+        /* outer border lines */
+        SDL_RenderDrawLine(ren, t, t, bbc_to_sdl_x(119)+t, t);                                       /* top */
+        SDL_RenderDrawLine(ren, t, t, t, bbc_to_sdl_y(191)+t);                                       /* left */
+        SDL_RenderDrawLine(ren, t, bbc_to_sdl_y(191)+t, bbc_to_sdl_x(119)+t, bbc_to_sdl_y(191)+t); /* bottom */
+        SDL_RenderDrawLine(ren, bbc_to_sdl_x(119)+t, t, bbc_to_sdl_x(119)+t, bbc_to_sdl_y(191)+t); /* right */
+        /* inner floor rect outline */
+        int fx0 = bbc_to_sdl_x(fo_x)+t, fy0 = bbc_to_sdl_y(fo_y)+t;
+        int fx1 = bbc_to_sdl_x(fo_x+fo_w)+t, fy1 = bbc_to_sdl_y(fo_y+fo_h)+t;
+        SDL_RenderDrawLine(ren, fx0, fy0, fx1, fy0); /* top */
+        SDL_RenderDrawLine(ren, fx0, fy0, fx0, fy1); /* left */
+        SDL_RenderDrawLine(ren, fx0, fy1, fx1, fy1); /* bottom */
+        SDL_RenderDrawLine(ren, fx1, fy0, fx1, fy1); /* right */
+    }
+
+    /* Draw diagonal corner cuts and detail lines */
     draw_room_outline(ren, style_idx, ink);
 }
 
