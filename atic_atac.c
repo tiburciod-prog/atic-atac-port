@@ -2044,18 +2044,21 @@ static void render_room(SDL_Renderer *ren, const GameState *gs) {
     /* Step 2: Clear floor interior to black using room_sizes table.
      * floor_rects[style]: {sdl_x, sdl_y, sdl_w, sdl_h} derived from BBC room_sizes.
      * BBC coords → SDL: x * SCREEN_W*SCALE/120, y * SCALE */
+    /* Floor cut-out rectangles from BBC wall data (2nd RECT entry = floor interior).
+     * BBC: RECT (x,y,w,h) → SDL: x*256*SCALE/120, y*SCALE, w*256*SCALE/120, h*SCALE
+     * SCALE=3, 256*3/120 = 6.4 */
     static const int floor_rects[11][4] = {
-        {115, 96, 461, 312},  /* 0: plain square  (BBC xl=18,xr=90,yt=32,yb=136) */
-        {256, 96, 179, 312},  /* 1: tall          (BBC xl=40,xr=68,yt=32,yb=136) */
-        {115,180, 461, 144},  /* 2: wide          (BBC xl=18,xr=90,yt=60,yb=108) */
-        {115, 96, 461, 312},  /* 3: octagon       (same as square) */
-        {166,108, 358, 288},  /* 4: cavern square (BBC xl=26,xr=82,yt=36,yb=132) */
-        {230,108, 230, 288},  /* 5: cavern tall   (BBC xl=36,xr=72,yt=36,yb=132) */
-        {166,132, 358, 240},  /* 6: cavern wide   (BBC xl=26,xr=82,yt=44,yb=124) */
-        {256, 96, 179, 312},  /* 7: stairs vert   (same as tall) */
-        {192,180, 358, 144},  /* 8: stairs horiz  (BBC xl=30,xr=86,yt=60,yb=108) */
-        {115, 96, 461, 312},  /* 9: wide cave     (same as square) */
-        {256, 96, 179, 312},  /* 10: tall cave    (same as tall) */
+        {108, 93, 544, 387},  /* 0: plain square  BBC (17,31,85,129) */
+        {249, 93, 262, 387},  /* 1: tall          BBC (39,31,41,129) */
+        {108,177, 544, 219},  /* 2: wide          BBC (17,59,85, 73) */
+        {108, 93, 544, 387},  /* 3: octagon       (all lines, use square fallback) */
+        {108, 93, 544, 387},  /* 4: cavern square (fallback) */
+        {249, 93, 262, 387},  /* 5: cavern tall   (fallback) */
+        {108,177, 544, 219},  /* 6: cavern wide   (fallback) */
+        {249, 93, 262, 387},  /* 7: stairs vert   (same as tall) */
+        {108,177, 544, 219},  /* 8: stairs horiz  (same as wide) */
+        {108, 93, 544, 387},  /* 9: wide cave     (same as square) */
+        {249, 93, 262, 387},  /* 10: tall cave    (same as tall) */
     };
     int si = (style_idx >= 0 && style_idx <= 10) ? style_idx : 0;
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
