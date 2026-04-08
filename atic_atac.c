@@ -227,16 +227,16 @@ typedef struct {
 } RoomStyle;
 
 static const RoomStyle room_styles[13] = {
-    { 72, 76, "Plain square"       },  /* 0 — w=72 (cx±72=16-160), h=76 (cy±76=28-180) */
-    { 40, 52, "Cave square"        },  /* 1 — narrower/shorter cave */
-    { 72, 76, "Octagonal"          },  /* 2 — same outer bounds as plain square */
-    { 72, 40, "Wide rectangle"     },  /* 3 — full width, half height */
-    { 40, 76, "Tall rectangle"     },  /* 4 — narrow, full height */
+    { 60, 76, "Plain square"       },  /* 0 — x=18-148, y=28-180 */
+    { 40, 52, "Cave square"        },  /* 1 */
+    { 60, 76, "Octagonal"          },  /* 2 */
+    { 60, 40, "Wide rectangle"     },  /* 3 */
+    { 40, 76, "Tall rectangle"     },  /* 4 */
     { 24, 64, "Stairs bottom-high" },  /* 5 */
     { 24, 64, "Stairs top-high"    },  /* 6 */
-    { 64, 24, "Stairs right-high"  },  /* 7 */
-    { 64, 24, "Stairs left-high"   },  /* 8 */
-    { 64, 40, "Wide cave"          },  /* 9 */
+    { 60, 24, "Stairs right-high"  },  /* 7 */
+    { 60, 24, "Stairs left-high"   },  /* 8 */
+    { 60, 40, "Wide cave"          },  /* 9 */
     { 40, 64, "Tall cave"          },  /* 10 */
     { 0x38, 0x38, "Final room"         },  /* 11 */
     { 0x38, 0x38, "Trapdoor tunnel"    },  /* 12 */
@@ -1826,19 +1826,19 @@ static void draw_room_outline(SDL_Renderer *ren, int style, SDL_Color c) {
      * Centre: cx=88, cy=104. Bounds: cx±w, cy±h.
      * {x_min, x_max, y_min, y_max} */
     static const int bounds[13][4] = {
-        { 16, 160,  28, 180},  /* 0: plain square (w=72, h=76) */
-        { 48, 128,  52, 156},  /* 1: cave square (w=40, h=52) */
-        { 16, 160,  28, 180},  /* 2: octagonal (w=72, h=76) */
-        { 16, 160,  64, 144},  /* 3: wide rectangle (w=72, h=40) */
-        { 48, 128,  28, 180},  /* 4: tall rectangle (w=40, h=76) */
-        { 64, 112,  40, 168},  /* 5: stairs bottom-high (w=24, h=64) */
-        { 64, 112,  40, 168},  /* 6: stairs top-high (w=24, h=64) */
-        { 24, 152,  80, 128},  /* 7: stairs right-high (w=64, h=24) */
-        { 24, 152,  80, 128},  /* 8: stairs left-high (w=64, h=24) */
-        { 24, 152,  64, 144},  /* 9: wide cave (w=64, h=40) */
-        { 48, 128,  40, 168},  /* 10: tall cave (w=40, h=64) */
-        { 16, 160,  28, 180},  /* 11: (unused) (w=72, h=76) */
-        { 16, 160,  28, 180},  /* 12: (unused) (w=72, h=76) */
+        { 18, 148,  28, 180},  /* 0: plain square — right wall at x=148 (just left of HUD at 150) */
+        { 48, 128,  52, 156},  /* 1: cave square */
+        { 18, 148,  28, 180},  /* 2: octagonal — same outer as plain square */
+        { 18, 148,  64, 144},  /* 3: wide rectangle */
+        { 48, 128,  28, 180},  /* 4: tall rectangle */
+        { 64, 112,  40, 168},  /* 5: stairs bottom-high */
+        { 64, 112,  40, 168},  /* 6: stairs top-high */
+        { 24, 148,  80, 128},  /* 7: stairs right-high */
+        { 24, 148,  80, 128},  /* 8: stairs left-high */
+        { 24, 148,  64, 144},  /* 9: wide cave */
+        { 48, 128,  40, 168},  /* 10: tall cave */
+        { 18, 148,  28, 180},  /* 11: (unused) */
+        { 18, 148,  28, 180},  /* 12: (unused) */
     };
     int si = (style < 0 || style > 12) ? 0 : style;
     int x0 = bounds[si][0] * SCALE;
