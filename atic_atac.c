@@ -1070,22 +1070,52 @@ static void spawn_creature(GameState *gs) {
 /*
  * update_creatures() — simple chase AI: move each creature 1px toward player.
  */
+static int has_inventory_item(const GameState *gs, uint8_t graphic) {
+    for (int s = 0; s < 3; s++)
+        if (gs->inventory[s][2] == graphic) return 1;
+    return 0;
+}
+
 static void update_creatures(GameState *gs) {
     for (int i = 0; i < gs->num_creatures; i++) {
         Entity *e = &gs->creatures[i];
         if (e->room != gs->current_room) continue;
-        /* Move 1px toward player every 2 frames */
         if (gs->frame % 2 != 0) continue;
+
         int dx = (int)gs->player.x - (int)e->x;
         int dy = (int)gs->player.y - (int)e->y;
-        if (dx >  1) e->x++;
-        else if (dx < -1) e->x--;
-        if (dy >  1) e->y++;
-        else if (dy < -1) e->y--;
+
+        int is_boss = (e->graphic >= 0x70 && e->graphic <= 0x9F);
+        if (is_boss) {
+            /* Boss roam: oscillate around room centre */
+            int cx = 0x58, cy = 0x68;
+            int bx = (int)e->x - cx, by = (int)e->y - cy;
+            /* Dracula: repelled by Crucifix */
+            if (e->graphic == 0x7C && has_inventory_item(gs, 0x8A)) {
+                /* Run away from player */
+                if (dx > 1) e->x--; else if (dx < -1) e->x++;
+                if (dy > 1) e->y--; else if (dy < -1) e->y++;
+            } else {
+                /* Roam: simple oscillation within 40px of centre */
+                if (bx > 40) e->x--; else if (bx < -40) e->x++;
+                else { if (dx > 2) e->x++; else if (dx < -2) e->x--; }
+                if (by > 40) e->y--; else if (by < -40) e->y++;
+                else { if (dy > 2) e->y++; else if (dy < -2) e->y--; }
+            }
+        } else {
+            /* Normal chase */
+            if (dx >  1) e->x++;
+            else if (dx < -1) e->x--;
+            if (dy >  1) e->y++;
+            else if (dy < -1) e->y--;
+        }
+
         /* Damage player on contact (within 8px) */
         if (dx*dx + dy*dy < 64) {
             if ((gs->frame % 16) == 0 && gs->energy > 0) {
-                if (gs->energy > 32) gs->energy -= 32;
+                /* Hunchback deals 16 damage, others 32 */
+                int dmg = (e->graphic == 0x9C) ? 16 : 32;
+                if (gs->energy > dmg) gs->energy = (uint8_t)(gs->energy - dmg);
                 else gs->energy = 0;
             }
         }
@@ -1737,7 +1767,8 @@ int main(int argc, char *argv[]) {
                 }
                 int is_normal = (re->graphic >= 0x01 && re->graphic <= 0x03);
                 int is_locked = (re->graphic >= 0x08 && re->graphic <= 0x0B);
-                if (!is_normal && !is_locked) continue;
+                int is_trapdoor = (re->graphic == 0x19);
+                if (!is_normal && !is_locked && !is_trapdoor) continue;
                 int ddx = nx - (int)re->x;
                 int ddy = ny - (int)re->y;
                 if (ddx*ddx + ddy*ddy < 144) { /* 12px trigger radius */
