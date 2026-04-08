@@ -906,14 +906,20 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
                 SDL_RenderDrawRect(ren, &slot);
             }
         }
-        /* Draw inventory items — gs->inventory[i][2] = graphic ID (3 slots max) */
+        /* Draw inventory items — gs->inventory[i][2] = graphic ID (3 slots only) */
         for (int i = 0; i < 3; i++) {
-            if (gs->inventory[i][2] == 0) continue;
+            uint8_t gfx = gs->inventory[i][2];
+            if (gfx == 0) continue; /* empty slot */
             int col = i % 3;
             int row = i / 3;
-            int sx2 = INV_X + col * (SLOT + GAP) + 2;
-            int sy  = INV_Y + row * (SLOT + GAP) + 2;
-            SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
+            int sx2  = INV_X + col * (SLOT + GAP) + 2;
+            int sy   = INV_Y + row * (SLOT + GAP) + 2;
+            /* Colour by item type */
+            uint8_t ir = 215, ig = 215, ib = 0; /* default: yellow */
+            if (gfx == 0x8A) { ir=215; ig=215; ib=215; } /* crucifix: white */
+            if (gfx == 0x8B) { ir=100; ig=100; ib=100; } /* spanner: grey */
+            if (gfx == 0x81) { ir=215; ig=0;   ib=0;   } /* key: red */
+            SDL_SetRenderDrawColor(ren, ir, ig, ib, 255);
             SDL_Rect item = { sx2*SCALE, sy*SCALE, 8*SCALE, 8*SCALE };
             SDL_RenderFillRect(ren, &item);
         }
@@ -939,19 +945,64 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
         }
     }
 
-    /* ── Energy bar: thin vertical bar at HX+HW-10, y=18 to y=173 ── */
+    /* ── Chicken energy bar (ZX-style proportional chicken silhouette) ── */
+    /* Chicken is drawn top-down; clipped from bottom based on energy.
+     * Full height = 60 ZX pixels (y=20 to y=80), positioned at HX+HW-22, y=20.
+     * Each row of the chicken has an x-offset and width defining the silhouette.
+     * 30 rows, each 2 ZX pixels tall → total 60px. */
     {
-        int bx = HX + HW - 12, by = 18, bh = 155, bw = 6;
-        /* Background */
-        SDL_SetRenderDrawColor(ren, 40, 40, 40, 255);
-        SDL_Rect bg = { bx*SCALE, by*SCALE, bw*SCALE, bh*SCALE };
-        SDL_RenderFillRect(ren, &bg);
-        /* Fill */
-        int fill_h = (int)((gs->energy * bh) / 0xF0);
-        if (fill_h > 0) {
-            SDL_SetRenderDrawColor(ren, 0, 215, 0, 255);
-            SDL_Rect fill = { bx*SCALE, (by+bh-fill_h)*SCALE, bw*SCALE, fill_h*SCALE };
-            SDL_RenderFillRect(ren, &fill);
+        /* Chicken silhouette: {x_offset, width} per row (0=top/head, 29=bottom/feet)
+         * Rough side-view chicken: small head top-left, fat body middle, tail right, legs bottom */
+        static const int8_t chk[30][2] = {
+            { 4, 4},  /* 0: head top */
+            { 3, 6},  /* 1: head */
+            { 2, 8},  /* 2: head/beak */
+            { 1,10},  /* 3: neck */
+            { 0,12},  /* 4: neck-body */
+            { 0,14},  /* 5: body top */
+            { 0,16},  /* 6: body */
+            { 0,16},  /* 7: body */
+            { 0,16},  /* 8: body */
+            { 0,18},  /* 9: body wide */
+            { 0,18},  /* 10: body wide */
+            { 0,18},  /* 11: body wide */
+            { 0,16},  /* 12: body */
+            { 0,16},  /* 13: body */
+            { 1,15},  /* 14: belly */
+            { 1,14},  /* 15: belly */
+            { 2,12},  /* 16: lower body */
+            { 2,10},  /* 17: lower body */
+            { 3, 8},  /* 18: lower taper */
+            { 3, 8},  /* 19: lower taper */
+            { 4, 4},  /* 20: leg gap top */
+            { 4, 4},  /* 21: leg gap */
+            { 3, 2},  /* 22: left leg */
+            { 3, 2},  /* 23: left leg */
+            { 3, 2},  /* 24: left leg */
+            {10, 2},  /* 25: right leg */
+            {10, 2},  /* 26: right leg */
+            {10, 2},  /* 27: right leg */
+            { 2, 4},  /* 28: feet */
+            { 2, 4},  /* 29: feet */
+        };
+        int ckx  = HX + HW - 22; /* left edge of chicken bounding box */
+        int cky  = 18;            /* top of chicken */
+        int full = 60;            /* full chicken height in ZX pixels */
+        /* How many pixels of chicken to show = proportional to energy */
+        int show_h = (int)((gs->energy * full) / 0xF0);
+        if (show_h < 1 && gs->energy > 0) show_h = 1;
+        /* clip_top: how many pixels to clip from top (hide when low energy) */
+        int clip_top = full - show_h;
+        SDL_SetRenderDrawColor(ren, 0, 215, 0, 255);
+        for (int row = 0; row < 30; row++) {
+            int ry = cky + row * 2; /* ZX y of this row */
+            /* Skip rows above the clip line */
+            if ((ry - cky + 2) <= clip_top) continue;
+            int rx = ckx + chk[row][0];
+            int rw = chk[row][1];
+            if (rw <= 0) continue;
+            SDL_Rect r = { rx*SCALE, ry*SCALE, rw*SCALE, 2*SCALE };
+            SDL_RenderFillRect(ren, &r);
         }
     }
 
@@ -1661,15 +1712,37 @@ static void check_item_pickup(GameState *gs) {
             continue;
         }
 
-        /* ACG key pieces: graphic $8C-$8E */
-        if (e->graphic < 0x8C || e->graphic > 0x8E) continue;
-        {
-            /* Collect: mark by zeroing graphic so it won't trigger again */
+        /* ACG key pieces: graphic $8C-$8E — special: track separately */
+        if (e->graphic >= 0x8C && e->graphic <= 0x8E) {
             e->graphic = 0x00;
             gs->keys_collected++;
             fprintf(stdout, "ACG key piece collected! (%d/3)\n", gs->keys_collected);
             if (gs->keys_collected >= 3)
                 fprintf(stdout, "All 3 ACG keys! Find the exit (graphic 0x24)!\n");
+            continue;
+        }
+        /* Other collectible items: graphic $8A (crucifix), $8B (spanner), $81 (key), $82-$8B range */
+        if (e->graphic >= 0x81 && e->graphic <= 0x8B) {
+            uint8_t item_gfx  = e->graphic;
+            uint8_t item_attr = e->attr;
+            e->graphic = 0x00; /* consume from room */
+            /* Find a free inventory slot */
+            int slot = -1;
+            for (int s = 0; s < 3; s++) {
+                if (gs->inventory[s][2] == 0) { slot = s; break; }
+            }
+            if (slot < 0) {
+                /* All slots full: drop slot 0, shift down, use slot 2 */
+                gs->inventory[0][2] = gs->inventory[1][2];
+                gs->inventory[0][3] = gs->inventory[1][3];
+                gs->inventory[1][2] = gs->inventory[2][2];
+                gs->inventory[1][3] = gs->inventory[2][3];
+                slot = 2;
+            }
+            gs->inventory[slot][2] = item_gfx;
+            gs->inventory[slot][3] = item_attr;
+            fprintf(stdout, "Picked up item $%02X into slot %d\n", item_gfx, slot);
+            continue;
         }
     }
     /* Check exit */
