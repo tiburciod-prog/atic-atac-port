@@ -334,6 +334,12 @@ typedef struct {
 
     /* ACG key pieces collected */
     int     keys_collected; /* 0-3 */
+    struct {
+        uint8_t room;
+        uint8_t x, y;
+        uint8_t graphic;   /* $8C/$8D/$8E */
+        int     collected; /* 1 if picked up */
+    } key_placement[3];
     int     creature_delay;  /* frames until next spawn attempt */
     int     death_flash;     /* frames remaining for death flash (0=none) */
     uint8_t visited_rooms[19]; /* 148 bits — 1 bit per room, 19 bytes */
@@ -422,6 +428,33 @@ static void init_game(GameState *gs, const uint8_t *ram) {
 
     gs->frame   = 0;
     gs->running = 1;
+
+    /* ACG key random placement — 8 room sets, pick one based on time */
+    {
+        static const uint8_t key_rooms[8][3] = {
+            {0x81, 0x45, 0x7C},
+            {0x85, 0x49, 0x2B},
+            {0x6A, 0x3B, 0x7C},
+            {0x69, 0x71, 0x2B},
+            {0x67, 0x85, 0x7C},
+            {0x68, 0x7F, 0x2B},
+            {0x4D, 0x73, 0x7C},
+            {0x17, 0x10, 0x2B},
+        };
+        int set = (int)(SDL_GetTicks() & 7u);
+        for (int k = 0; k < 3; k++) {
+            gs->key_placement[k].room      = key_rooms[set][k];
+            gs->key_placement[k].x         = 0x58; /* room centre X */
+            gs->key_placement[k].y         = 0x68; /* room centre Y */
+            gs->key_placement[k].graphic   = (uint8_t)(0x8C + k);
+            gs->key_placement[k].collected = 0;
+        }
+        fprintf(stdout, "ACG key set %d: rooms $%02X $%02X $%02X\n",
+            set,
+            gs->key_placement[0].room,
+            gs->key_placement[1].room,
+            gs->key_placement[2].room);
+    }
 
     fprintf(stdout, "init_game: room=%02X energy=%02X lives=%d inv[0].graphic=%02X\n",
         gs->current_room, gs->energy, gs->lives, gs->inventory[0][2]);
@@ -1664,6 +1697,24 @@ static void parse_room_entities(GameState *gs, const uint8_t *ram) {
         gs->num_room_entities++;
         if (gs->num_room_entities >= MAX_ROOM_ENTITIES) break;
     }
+    /* Inject ACG key entities for this room if not yet collected */
+    for (int k = 0; k < 3; k++) {
+        if (gs->key_placement[k].collected) continue;
+        if (gs->key_placement[k].room != gs->current_room) continue;
+        if (gs->num_room_entities >= MAX_ROOM_ENTITIES) break;
+        RoomEntity *ke = &gs->room_entities[gs->num_room_entities];
+        ke->graphic  = gs->key_placement[k].graphic;
+        ke->room     = gs->current_room;
+        ke->flags    = 0;
+        ke->x        = gs->key_placement[k].x;
+        ke->y        = gs->key_placement[k].y;
+        ke->attr     = 0x4F; /* bright white */
+        ke->b6       = 0;
+        ke->b7       = 0;
+        ke->zx_addr  = 0; /* virtual entity, no ZX address */
+        gs->num_room_entities++;
+    }
+
     fprintf(stdout, "room %02X: %d entities\n", gs->current_room, gs->num_room_entities);
 }
 
