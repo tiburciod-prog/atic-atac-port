@@ -1219,22 +1219,28 @@ static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
             continue;
         }
         if (e->graphic < 0x10 || e->graphic >= 0x80) continue;
-        /* Known decorations: use real ROM sprites */
-        switch (e->graphic) {
-            case 0x10: draw_sprite(ren, deco_clock,      18, e->x, e->y, e->attr, 1); continue;
-            case 0x11: draw_sprite(ren, deco_candle_a,   20, e->x, e->y, e->attr, 1); continue;
-            case 0x15: draw_sprite(ren, deco_candle_b,   20, e->x, e->y, e->attr, 1); continue;
-            case 0x16: draw_sprite(ren, deco_candle_c,   20, e->x, e->y, e->attr, 1); continue;
-            case 0x17: draw_sprite(ren, deco_bookcase,   20, e->x, e->y, e->attr, 1); continue;
-            case 0x18: draw_sprite(ren, trapdoor_closed, 20, e->x, e->y, e->attr, 1); continue;
-            case 0x19: draw_sprite(ren, trapdoor_open,   20, e->x, e->y, e->attr, 1); continue;
-            case 0x1A: draw_sprite(ren, deco_barrel,     20, e->x, e->y, e->attr, 1); continue;
-            case 0x1B: draw_sprite(ren, deco_lantern_a,  20, e->x, e->y, e->attr, 1); continue;
-            case 0x1C: draw_sprite(ren, deco_lantern_b,  20, e->x, e->y, e->attr, 1); continue;
-            case 0x1D: draw_sprite(ren, deco_lantern_c,  20, e->x, e->y, e->attr, 1); continue;
-            case 0x1E: draw_sprite(ren, deco_lantern_d,  20, e->x, e->y, e->attr, 1); continue;
+        /* Known decorations: use real ROM sprites.
+         * ZX Spectrum decorations store their visible colour in the PAPER field (bits 3-5),
+         * not ink (bits 0-2). Swap ink/paper so draw_sprite renders with the correct colour. */
+        {
+            uint8_t a = e->attr;
+            uint8_t da = (uint8_t)((a & 0xC0u) | ((a & 0x07u) << 3) | ((a >> 3) & 0x07u));
+            switch (e->graphic) {
+            case 0x10: draw_sprite(ren, deco_clock,      18, e->x, e->y, da, 1); continue;
+            case 0x11: draw_sprite(ren, deco_candle_a,   20, e->x, e->y, da, 1); continue;
+            case 0x15: draw_sprite(ren, deco_candle_b,   20, e->x, e->y, da, 1); continue;
+            case 0x16: draw_sprite(ren, deco_candle_c,   20, e->x, e->y, da, 1); continue;
+            case 0x17: draw_sprite(ren, deco_bookcase,   20, e->x, e->y, da, 1); continue;
+            case 0x18: draw_sprite(ren, trapdoor_closed, 20, e->x, e->y, da, 1); continue;
+            case 0x19: draw_sprite(ren, trapdoor_open,   20, e->x, e->y, da, 1); continue;
+            case 0x1A: draw_sprite(ren, deco_barrel,     20, e->x, e->y, da, 1); continue;
+            case 0x1B: draw_sprite(ren, deco_lantern_a,  20, e->x, e->y, da, 1); continue;
+            case 0x1C: draw_sprite(ren, deco_lantern_b,  20, e->x, e->y, da, 1); continue;
+            case 0x1D: draw_sprite(ren, deco_lantern_c,  20, e->x, e->y, da, 1); continue;
+            case 0x1E: draw_sprite(ren, deco_lantern_d,  20, e->x, e->y, da, 1); continue;
             default: break;
-        }
+            } /* end switch */
+        } /* end decoration block */
         /* Fallback: coloured square for unknown decoration IDs */
         {
             int bright2 = (e->attr & 0x40) ? 1 : 0;
@@ -1885,7 +1891,16 @@ int main(int argc, char *argv[]) {
 
         if (headless) {
             fprintf(stdout, "Headless: frame rendered OK\n");
-            if (screenshot) SDL_SaveBMP(SDL_GetWindowSurface(win), "/tmp/atic_screenshot.bmp");
+            if (screenshot) {
+                SDL_Surface *sshot = SDL_CreateRGBSurface(0, WIN_W, WIN_H, 32,
+                    0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+                if (sshot) {
+                    SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_ARGB8888,
+                        sshot->pixels, sshot->pitch);
+                    SDL_SaveBMP(sshot, "/tmp/atic_screenshot.bmp");
+                    SDL_FreeSurface(sshot);
+                }
+            }
             gs.running = 0;
         } else {
             SDL_Delay(1000 / FPS);
