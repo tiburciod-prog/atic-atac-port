@@ -1181,20 +1181,11 @@ static int show_char_select(SDL_Renderer *ren) {
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
 
-        /* Draw title "ATIC ATAC" in top area */
-        static const char *title = "ATIC ATAC";
-        int tx = 60;
-        for (int i = 0; title[i]; i++) {
-            /* Draw each letter as a bright white 6x10 block */
-            SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
-            SDL_Rect r = { (tx + i*9) * SCALE, 20 * SCALE, 6 * SCALE, 10 * SCALE };
-            SDL_RenderDrawRect(ren, &r);
-        }
+        /* Draw title "ATIC ATAC" */
+        draw_text(ren, "ATIC ATAC", 80, 20, 255, 255, 0);   /* yellow */
 
         /* Draw "SELECT CHARACTER" prompt */
-        SDL_SetRenderDrawColor(ren, 200, 200, 200, 255);
-        SDL_Rect prompt = { 55 * SCALE, 55 * SCALE, 150 * SCALE, 6 * SCALE };
-        SDL_RenderFillRect(ren, &prompt);
+        draw_text(ren, "SELECT CHARACTER", 55, 55, 200, 200, 200);
 
         /* Draw 3 character options */
         for (int i = 0; i < 3; i++) {
@@ -1219,11 +1210,8 @@ static int show_char_select(SDL_Renderer *ren) {
             SDL_Rect box = { 60 * SCALE, oy * SCALE, 12 * SCALE, 12 * SCALE };
             SDL_RenderFillRect(ren, &box);
 
-            /* Name as a bar (placeholder for text) */
-            SDL_SetRenderDrawColor(ren, 200, 200, 200, 255);
-            SDL_Rect name_bar = { 80 * SCALE, (oy+2) * SCALE,
-                                  (int)(strlen(names[i]) * 7) * SCALE, 8 * SCALE };
-            SDL_RenderFillRect(ren, &name_bar);
+            /* Character name text */
+            draw_text(ren, names[i], 80, oy + 2, 200, 200, 200);
         }
 
         SDL_RenderPresent(ren);
