@@ -1696,22 +1696,23 @@ static void game_tick(GameState *gs) {
  * ZX pixel → SDL pixel: multiply by SCALE.
  */
 static void draw_room_outline(SDL_Renderer *ren, int style, SDL_Color c) {
-    /* Room boundaries in ZX pixel coords per style index */
-    /* {x_min, x_max, y_min, y_max, octagonal} */
-    static const int bounds[13][5] = {
-        {18, 90, 32, 136, 0},  /* 0: plain square */
-        {40, 68, 32, 136, 0},  /* 1: cave square (tall) */
-        {18, 90, 60, 108, 0},  /* 2: octagonal (wide) */
-        {18, 90, 32, 136, 0},  /* 3: wide rectangle — same outer as square */
-        {40, 68, 32, 136, 0},  /* 4: tall rectangle */
-        {18, 50, 32, 136, 0},  /* 5: stairs bottom-high */
-        {18, 50, 32, 136, 0},  /* 6: stairs top-high */
-        {18, 90, 32, 136, 0},  /* 7: stairs right-high */
-        {18, 90, 32, 136, 0},  /* 8: stairs left-high */
-        {18, 90, 32, 136, 0},  /* 9: wide cave */
-        {40, 68, 32, 136, 0},  /* 10: tall cave */
-        {18, 90, 32, 136, 0},  /* 11: (unused) */
-        {18, 90, 32, 136, 0},  /* 12: (unused) */
+    /* Room boundaries in ZX pixel coords per style index.
+     * Derived from room_styles[]: centre (cx=88, cy=104), bounds = cx±w, cy±h.
+     * {x_min, x_max, y_min, y_max} */
+    static const int bounds[13][4] = {
+        { 32, 144,  48, 160},  /* 0: plain square (w=56, h=56) */
+        { 48, 128,  64, 144},  /* 1: cave square (w=40, h=40) */
+        { 32, 144,  48, 160},  /* 2: octagonal (w=56, h=56) */
+        { 32, 144,  80, 128},  /* 3: wide rectangle (w=56, h=24) */
+        { 64, 112,  48, 160},  /* 4: tall rectangle (w=24, h=56) */
+        { 72, 104,  56, 152},  /* 5: stairs bottom-high (w=16, h=48) */
+        { 72, 104,  56, 152},  /* 6: stairs top-high (w=16, h=48) */
+        { 40, 136,  88, 120},  /* 7: stairs right-high (w=48, h=16) */
+        { 40, 136,  88, 120},  /* 8: stairs left-high (w=48, h=16) */
+        { 40, 136,  80, 128},  /* 9: wide cave (w=48, h=24) */
+        { 64, 112,  56, 152},  /* 10: tall cave (w=24, h=48) */
+        { 32, 144,  48, 160},  /* 11: (unused) (w=56, h=56) */
+        { 32, 144,  48, 160},  /* 12: (unused) (w=56, h=56) */
     };
     int si = (style < 0 || style > 12) ? 0 : style;
     int x0 = bounds[si][0] * SCALE;
