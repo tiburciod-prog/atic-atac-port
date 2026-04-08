@@ -866,10 +866,7 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
     const int HW  = 106;      /* HUD width (to x=255) */
     const int HCX = HX + HW/2; /* HUD centre x = 203 */
 
-    /* ── Panel background: black ── */
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_Rect panel = { HX * SCALE, 0, HW * SCALE, SCREEN_H * SCALE };
-    SDL_RenderFillRect(ren, &panel);
+    /* ── No panel background fill — HUD draws on top of room ── */
 
     /* ── Scroll border: cyan double outline ── */
     SDL_SetRenderDrawColor(ren, 0, 215, 215, 255);
@@ -2031,16 +2028,39 @@ static void draw_room_outline(SDL_Renderer *ren, int style, SDL_Color c) {
 static void render_room(SDL_Renderer *ren, const GameState *gs) {
     int style_idx = room_attrs[gs->current_room].style;
 
-    /* Decode ZX attribute → SDL ink colour */
+    /* Decode ZX attribute → SDL colours */
     uint8_t attr  = gs->room_attr;
     int bright    = (attr & 0x40) ? 8 : 0;
     SDL_Color ink  = zx_pal[(attr & 7) | bright];
 
-    /* Fill entire screen with black, then draw vector walls */
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    /* Step 1: Fill entire game area with wall (ink) colour */
+    SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
     SDL_Rect game_area = { 0, 0, WIN_W, WIN_H };
     SDL_RenderFillRect(ren, &game_area);
 
+    /* Step 2: Clear floor interior to black using room_sizes table.
+     * floor_rects[style]: {sdl_x, sdl_y, sdl_w, sdl_h} derived from BBC room_sizes.
+     * BBC coords → SDL: x * SCREEN_W*SCALE/120, y * SCALE */
+    static const int floor_rects[11][4] = {
+        {115, 96, 461, 312},  /* 0: plain square  (BBC xl=18,xr=90,yt=32,yb=136) */
+        {256, 96, 179, 312},  /* 1: tall          (BBC xl=40,xr=68,yt=32,yb=136) */
+        {115,180, 461, 144},  /* 2: wide          (BBC xl=18,xr=90,yt=60,yb=108) */
+        {115, 96, 461, 312},  /* 3: octagon       (same as square) */
+        {166,108, 358, 288},  /* 4: cavern square (BBC xl=26,xr=82,yt=36,yb=132) */
+        {230,108, 230, 288},  /* 5: cavern tall   (BBC xl=36,xr=72,yt=36,yb=132) */
+        {166,132, 358, 240},  /* 6: cavern wide   (BBC xl=26,xr=82,yt=44,yb=124) */
+        {256, 96, 179, 312},  /* 7: stairs vert   (same as tall) */
+        {192,180, 358, 144},  /* 8: stairs horiz  (BBC xl=30,xr=86,yt=60,yb=108) */
+        {115, 96, 461, 312},  /* 9: wide cave     (same as square) */
+        {256, 96, 179, 312},  /* 10: tall cave    (same as tall) */
+    };
+    int si = (style_idx >= 0 && style_idx <= 10) ? style_idx : 0;
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_Rect floor_r = { floor_rects[si][0], floor_rects[si][1],
+                         floor_rects[si][2], floor_rects[si][3] };
+    SDL_RenderFillRect(ren, &floor_r);
+
+    /* Step 3: Draw decorative vector lines over the wall band (inner detail lines) */
     draw_room_outline(ren, style_idx, ink);
 }
 
