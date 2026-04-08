@@ -1219,6 +1219,11 @@ static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
             continue;
         }
         if (e->graphic < 0x10 || e->graphic >= 0x80) continue;
+        /* Skip player/character frame entities (position markers, not decorations):
+         * Knight=$01-$0F, Wizard=$11-$1F, Serf=$21-$2F */
+        if (e->graphic <= 0x0F) continue;  /* already caught above, but be explicit */
+        if ((e->graphic >= 0x11 && e->graphic <= 0x1F) ||
+            (e->graphic >= 0x21 && e->graphic <= 0x2F)) continue;
         /* Known decorations: use real ROM sprites.
          * ZX Spectrum decorations store their visible colour in the PAPER field (bits 3-5),
          * not ink (bits 0-2). Swap ink/paper so draw_sprite renders with the correct colour. */
