@@ -335,6 +335,9 @@ typedef struct {
     /* ACG key pieces collected */
     int     keys_collected; /* 0-3 */
     int     creature_delay;  /* frames until next spawn attempt */
+    uint8_t visited_rooms[19]; /* 148 bits — 1 bit per room, 19 bytes */
+    int     score_flash;     /* frames remaining for score flash (0=none) */
+    uint32_t prev_score_val; /* last rendered score_val, for change detection */
 
     /* Weapon state */
     int     weapon_active;  /* 1 = axe in flight */
@@ -848,8 +851,10 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
     digits[4] = (gs->score[2] >> 4) & 0xF;
     digits[5] =  gs->score[2]       & 0xF;
     int score_x = 70;  /* left edge of 6-digit score display */
+    /* Flash between white and yellow when score recently changed */
+    uint8_t sr = 255, sg = 255, sb = (gs->score_flash > 0 && (gs->score_flash / 4) & 1) ? 0u : 255u;
     for (int i = 0; i < 6; i++) {
-        draw_digit(ren, digits[i] % 10, score_x + i * 5, 4, 255, 255, 255);
+        draw_digit(ren, digits[i] % 10, score_x + i * 5, 4, sr, sg, sb);
     }
 
     /* ── Lives (bottom-left, red squares 5×5px each) ── */
@@ -859,6 +864,16 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
         SDL_RenderFillRect(ren, &heart);
     }
 
+    /* ── Exploration % (bottom-right, two digits) ── */
+    {
+        int visited = 0;
+        for (int i = 0; i < 19; i++)
+            for (int b = 0; b < 8; b++)
+                if (gs->visited_rooms[i] & (1u << b)) visited++;
+        int pct = (visited * 100) / 148;
+        draw_digit(ren, pct / 10, 230, 180, 100, 200, 100);
+        draw_digit(ren, pct % 10, 236, 180, 100, 200, 100);
+    }
     /* ── ACG key pieces collected (bottom-right, yellow squares) ── */
     for (int i = 0; i < gs->keys_collected && i < 3; i++) {
         SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
@@ -1545,6 +1560,8 @@ static void do_room_transition(GameState *gs, uint16_t src_addr) {
     gs->player.y      = new_y;
     gs->num_creatures = 0;  /* Re-parse entities for the new room */
     parse_room_entities(gs, ram);
+    /* Mark destination room as visited */
+    gs->visited_rooms[dst_room / 8] |= (uint8_t)(1u << (dst_room & 7));
     fprintf(stdout, "door transition: room %02X -> %02X player=(%02X,%02X)\n",
             src_addr, dst_room, new_x, new_y);
 }
@@ -1584,6 +1601,12 @@ static void game_tick(GameState *gs) {
 
     /* Check item pickups */
     check_item_pickup(gs);
+    /* Score flash: detect change */
+    if (gs->score_val != gs->prev_score_val) {
+        gs->score_flash = 16;
+        gs->prev_score_val = gs->score_val;
+    }
+    if (gs->score_flash > 0) gs->score_flash--;
 
     /* Update weapon */
     update_weapon(gs);
