@@ -334,6 +334,7 @@ typedef struct {
 
     /* ACG key pieces collected */
     int     keys_collected; /* 0-3 */
+    int     creature_delay;  /* frames until next spawn attempt */
 
     /* Weapon state */
     int     weapon_active;  /* 1 = axe in flight */
@@ -1543,8 +1544,13 @@ static void game_tick(GameState *gs) {
     if ((gs->frame & 0x0Fu) == 0u && gs->energy > 0)
         gs->energy--;
 
-    /* Spawn a creature every 200 frames (max 3) */
-    if (gs->frame % 200 == 0) spawn_creature(gs);
+    /* Spawn creatures via variable delay (100-200 frames) */
+    if (gs->creature_delay <= 0) {
+        spawn_creature(gs);
+        gs->creature_delay = 100 + (int)(gs->frame & 0x7F);  /* 100-227 */
+    } else {
+        gs->creature_delay--;
+    }
 
     /* Check item pickups */
     check_item_pickup(gs);
