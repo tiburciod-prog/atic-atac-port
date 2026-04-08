@@ -1690,51 +1690,104 @@ static void game_tick(GameState *gs) {
     }
 }
 
+/* draw_room_outline() — draw thin coloured outline for a room style.
+ * Uses actual room boundary coords from the BBC Micro disassembly (room_sizes table).
+ * BBC Micro screen: 0x78 wide × 0xC0 tall → same as ZX pixel coords (scale 1:1 approx).
+ * ZX pixel → SDL pixel: multiply by SCALE.
+ */
+static void draw_room_outline(SDL_Renderer *ren, int style, SDL_Color c) {
+    /* Room boundaries in ZX pixel coords per style index */
+    /* {x_min, x_max, y_min, y_max, octagonal} */
+    static const int bounds[13][5] = {
+        {18, 90, 32, 136, 0},  /* 0: plain square */
+        {40, 68, 32, 136, 0},  /* 1: cave square (tall) */
+        {18, 90, 60, 108, 0},  /* 2: octagonal (wide) */
+        {18, 90, 32, 136, 0},  /* 3: wide rectangle — same outer as square */
+        {40, 68, 32, 136, 0},  /* 4: tall rectangle */
+        {18, 50, 32, 136, 0},  /* 5: stairs bottom-high */
+        {18, 50, 32, 136, 0},  /* 6: stairs top-high */
+        {18, 90, 32, 136, 0},  /* 7: stairs right-high */
+        {18, 90, 32, 136, 0},  /* 8: stairs left-high */
+        {18, 90, 32, 136, 0},  /* 9: wide cave */
+        {40, 68, 32, 136, 0},  /* 10: tall cave */
+        {18, 90, 32, 136, 0},  /* 11: (unused) */
+        {18, 90, 32, 136, 0},  /* 12: (unused) */
+    };
+    int si = (style < 0 || style > 12) ? 0 : style;
+    int x0 = bounds[si][0] * SCALE;
+    int x1 = bounds[si][1] * SCALE;
+    int y0 = bounds[si][2] * SCALE;
+    int y1 = bounds[si][3] * SCALE;
+
+    SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, 255);
+
+    if (si == 0 || si == 3) {
+        /* Plain square: outer rect + inner rect (3D effect) */
+        SDL_Rect outer = { x0, y0, x1-x0, y1-y0 };
+        SDL_RenderDrawRect(ren, &outer);
+        SDL_Rect inner = { x0+4*SCALE, y0+4*SCALE, x1-x0-8*SCALE, y1-y0-8*SCALE };
+        SDL_RenderDrawRect(ren, &inner);
+    } else if (si == 2) {
+        /* Octagonal: rectangle with 8px corner cuts */
+        int cut = 8 * SCALE;
+        /* top edge */
+        SDL_RenderDrawLine(ren, x0+cut, y0, x1-cut, y0);
+        /* bottom edge */
+        SDL_RenderDrawLine(ren, x0+cut, y1, x1-cut, y1);
+        /* left edge */
+        SDL_RenderDrawLine(ren, x0, y0+cut, x0, y1-cut);
+        /* right edge */
+        SDL_RenderDrawLine(ren, x1, y0+cut, x1, y1-cut);
+        /* top-left diagonal */
+        SDL_RenderDrawLine(ren, x0, y0+cut, x0+cut, y0);
+        /* top-right diagonal */
+        SDL_RenderDrawLine(ren, x1-cut, y0, x1, y0+cut);
+        /* bottom-left diagonal */
+        SDL_RenderDrawLine(ren, x0, y1-cut, x0+cut, y1);
+        /* bottom-right diagonal */
+        SDL_RenderDrawLine(ren, x1-cut, y1, x1, y1-cut);
+        /* inner octagon (3D effect), 4px inset */
+        int ci = 4 * SCALE;
+        SDL_RenderDrawLine(ren, x0+cut+ci, y0+ci, x1-cut-ci, y0+ci);
+        SDL_RenderDrawLine(ren, x0+cut+ci, y1-ci, x1-cut-ci, y1-ci);
+        SDL_RenderDrawLine(ren, x0+ci, y0+cut+ci, x0+ci, y1-cut-ci);
+        SDL_RenderDrawLine(ren, x1-ci, y0+cut+ci, x1-ci, y1-cut-ci);
+        SDL_RenderDrawLine(ren, x0+ci, y0+cut+ci, x0+cut+ci, y0+ci);
+        SDL_RenderDrawLine(ren, x1-cut-ci, y0+ci, x1-ci, y0+cut+ci);
+        SDL_RenderDrawLine(ren, x0+ci, y1-cut-ci, x0+cut+ci, y1-ci);
+        SDL_RenderDrawLine(ren, x1-cut-ci, y1-ci, x1-ci, y1-cut-ci);
+    } else {
+        /* Default: plain rectangle outline + inner */
+        SDL_Rect outer = { x0, y0, x1-x0, y1-y0 };
+        SDL_RenderDrawRect(ren, &outer);
+        SDL_Rect inner = { x0+4*SCALE, y0+4*SCALE, x1-x0-8*SCALE, y1-y0-8*SCALE };
+        SDL_RenderDrawRect(ren, &inner);
+    }
+}
+
 /*
  * render_room() — fill floor and draw walls for the current room.
  * Must be called each frame before rendering sprites.
  */
 static void render_room(SDL_Renderer *ren, const GameState *gs) {
     const RoomStyle *rs = get_room_style(gs->current_room, NULL);
-
-    /* Room centre and interior bounds */
-    int cx = 0x58, cy = 0x68;
-    int left   = (cx - rs->w) * SCALE;
-    int right  = (cx + rs->w) * SCALE;
-    int top    = (cy - rs->h) * SCALE;
-    int bottom = (cy + rs->h) * SCALE;
-    int thick  = 4 * SCALE;
+    int style_idx = room_attrs[gs->current_room].style;
 
     /* Decode ZX attribute → SDL colours */
     uint8_t attr  = gs->room_attr;
     int bright    = (attr & 0x40) ? 8 : 0;
     SDL_Color ink  = zx_pal[(attr & 7) | bright];
-    SDL_Color paper= zx_pal[((attr >> 3) & 7) | bright];
+    SDL_Color paper = zx_pal[((attr >> 3) & 7) | bright];
+    (void)rs;    /* style looked up via style_idx */
+    (void)paper; /* floor fill replaced by black background */
 
-    /* Fill floor with paper colour */
-    SDL_SetRenderDrawColor(ren, paper.r, paper.g, paper.b, 255);
-    SDL_Rect floor_r = { left, top, right - left, bottom - top };
-    SDL_RenderFillRect(ren, &floor_r);
+    /* Fill entire game area with black first */
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_Rect game_area = { 0, 0, WIN_W, WIN_H };
+    SDL_RenderFillRect(ren, &game_area);
 
-    /* Draw walls with ink colour */
-    SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
-    SDL_Rect walls[4] = {
-        { left,        top - thick,   right - left,         thick              },  /* top    */
-        { left,        bottom,        right - left,         thick              },  /* bottom */
-        { left - thick, top - thick,  thick, bottom-top+2*thick               },  /* left   */
-        { right,       top - thick,   thick, bottom-top+2*thick               },  /* right  */
-    };
-    for (int i = 0; i < 4; i++)
-        SDL_RenderFillRect(ren, &walls[i]);
-
-    /* Trapdoor indicator: style 12 gets dark hatching across the floor */
-    if (room_attrs[gs->current_room].style == 12) {
-        SDL_SetRenderDrawColor(ren, 40, 40, 40, 255);
-        for (int tx = (cx - rs->w + 8) * SCALE; tx < (cx + rs->w - 8) * SCALE; tx += 16 * SCALE) {
-            SDL_Rect trap = { tx, (cy - 4) * SCALE, 8 * SCALE, 8 * SCALE };
-            SDL_RenderFillRect(ren, &trap);
-        }
-    }
+    /* Draw thin room outline in ink colour */
+    draw_room_outline(ren, style_idx, ink);
 }
 
 int main(int argc, char *argv[]) {
