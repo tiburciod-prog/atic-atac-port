@@ -338,6 +338,7 @@ typedef struct {
     /* Weapon state */
     int     weapon_active;  /* 1 = axe in flight */
     uint8_t weapon_room;    /* room axe was fired in */
+    uint8_t weapon_life;    /* frames remaining (0 = deactivate) */
 
     /* Score display (32-bit for easy increment) */
     uint32_t score_val;
@@ -950,7 +951,14 @@ static const uint8_t creature_sprites[22][4][CREATURE_ROWS][2] = {
 static void spawn_creature(GameState *gs) {
     if (gs->num_creatures >= 3) return;
     Entity *e = &gs->creatures[gs->num_creatures++];
-    e->graphic = 0x5C;  /* Spider type */
+    /* 16-entry creature type table from ROM $8B7A */
+    static const uint8_t creature_table[16] = {
+        0x5C, 0x5E, 0x98, 0x98,  /* Spider, Spikey, Bat, Bat */
+        0x90, 0x90, 0x94, 0x94,  /* Witch, Witch, Monk, Monk */
+        0x5C, 0x5E, 0x60, 0x62,  /* Spider, Spikey, Blob, Ghoul */
+        0x4C, 0x4E, 0x68, 0x6A,  /* Pumpkin, Ghostlet, Ghost, Batlet */
+    };
+    e->graphic = creature_table[gs->frame & 0x0F];
     e->room    = gs->current_room;
     e->x       = 0x58;  /* room centre */
     e->y       = 0x68;
@@ -1150,6 +1158,7 @@ static void fire_weapon(GameState *gs) {
     static const int8_t dvy[4] = { 4, 0,  0,-4 };
     gs->weapon.vx = dvx[gs->walk_dir];
     gs->weapon.vy = dvy[gs->walk_dir];
+    gs->weapon_life = 48; /* 48-frame lifetime */
 }
 
 /*
@@ -1162,10 +1171,21 @@ static void update_weapon(GameState *gs) {
     gs->weapon.x = (uint8_t)((int)gs->weapon.x + gs->weapon.vx);
     gs->weapon.y = (uint8_t)((int)gs->weapon.y + gs->weapon.vy);
 
-    /* Deactivate if off-screen (ZX screen 0-255 x 0-191) */
-    if (gs->weapon.x > 240 || gs->weapon.y > 180) {
+    /* Lifetime countdown */
+    if (gs->weapon_life > 0) gs->weapon_life--;
+    if (gs->weapon_life == 0) {
         gs->weapon_active = 0;
         return;
+    }
+
+    /* Bounce off room walls */
+    {
+        const RoomStyle *rs = get_room_style(gs->current_room, NULL);
+        int cx = 0x58, cy = 0x68;
+        int wl = cx - rs->w + 4, wr = cx + rs->w - 4;
+        int wt = cy - rs->h + 4, wb = cy + rs->h - 4;
+        if ((int)gs->weapon.x <= wl || (int)gs->weapon.x >= wr) gs->weapon.vx = -gs->weapon.vx;
+        if ((int)gs->weapon.y <= wt || (int)gs->weapon.y >= wb) gs->weapon.vy = -gs->weapon.vy;
     }
 
     /* Hit detection vs creatures */
@@ -1175,7 +1195,8 @@ static void update_weapon(GameState *gs) {
         int dx = (int)gs->weapon.x - (int)e->x;
         int dy = (int)gs->weapon.y - (int)e->y;
         if (dx*dx + dy*dy < 144) {  /* 12px hit radius */
-            /* Kill creature: remove by swapping with last */
+            /* Kill creature: save graphic before swapping */
+            uint8_t killed_graphic = gs->creatures[i].graphic;
             gs->creatures[i] = gs->creatures[gs->num_creatures - 1];
             gs->num_creatures--;
             gs->weapon_active = 0;
@@ -1188,7 +1209,7 @@ static void update_weapon(GameState *gs) {
                     250,250,250,250,  /* 12-15: bosses */
                     300,300,300,300,300,300  /* 16-21: rare */
                 };
-                uint8_t ctype = gs->creatures[i].graphic & 0x1Fu;
+                uint8_t ctype = killed_graphic & 0x1Fu;
                 if (ctype > 21u) ctype = 0;
                 gs->score_val += score_table[ctype];
             }
