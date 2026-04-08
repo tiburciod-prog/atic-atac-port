@@ -1424,10 +1424,29 @@ static void render_items(SDL_Renderer *ren, const GameState *gs) {
 static void check_item_pickup(GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         RoomEntity *e = &gs->room_entities[i];
-        if (e->graphic < 0x8C || e->graphic > 0x8E) continue;
         int dx = (int)gs->player.x - (int)e->x;
         int dy = (int)gs->player.y - (int)e->y;
-        if (dx*dx + dy*dy < 100) {
+        if (dx*dx + dy*dy >= 144) continue; /* 12px pickup radius */
+
+        /* Food items: graphic $80-$89 — restore +64 energy */
+        if (e->graphic >= 0x80 && e->graphic <= 0x89) {
+            e->graphic = 0x00; /* consume */
+            if (gs->energy < 0xF0 - 64)
+                gs->energy = (uint8_t)(gs->energy + 64);
+            else
+                gs->energy = 0xF0;
+            gs->score_val += 100;
+            uint32_t s = gs->score_val;
+            gs->score[2] = (uint8_t)(((s/10)%10)<<4|(s%10));
+            gs->score[1] = (uint8_t)(((s/1000)%10)<<4|((s/100)%10));
+            gs->score[0] = (uint8_t)(((s/100000)%10)<<4|((s/10000)%10));
+            fprintf(stdout, "Food! energy=%d\n", gs->energy);
+            continue;
+        }
+
+        /* ACG key pieces: graphic $8C-$8E */
+        if (e->graphic < 0x8C || e->graphic > 0x8E) continue;
+        {
             /* Collect: mark by zeroing graphic so it won't trigger again */
             e->graphic = 0x00;
             gs->keys_collected++;
