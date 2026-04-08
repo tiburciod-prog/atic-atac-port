@@ -335,6 +335,7 @@ typedef struct {
     /* ACG key pieces collected */
     int     keys_collected; /* 0-3 */
     int     creature_delay;  /* frames until next spawn attempt */
+    int     death_flash;     /* frames remaining for death flash (0=none) */
     uint8_t visited_rooms[19]; /* 148 bits — 1 bit per room, 19 bytes */
     int     score_flash;     /* frames remaining for score flash (0=none) */
     uint32_t prev_score_val; /* last rendered score_val, for change detection */
@@ -1614,22 +1615,33 @@ static void game_tick(GameState *gs) {
     /* Update creature AI */
     update_creatures(gs);
 
+    /* Death flash countdown */
+    if (gs->death_flash > 0) {
+        gs->death_flash--;
+        if (gs->death_flash == 0) {
+            /* Flash done — now respawn or game over */
+            if (gs->lives == 0) {
+                gs->running = 0;
+                fprintf(stdout, "GAME OVER — score: %02X%02X%02X\n",
+                    gs->score[0], gs->score[1], gs->score[2]);
+            } else {
+                gs->energy     = 0xF0;
+                gs->player.x   = 0x58;
+                gs->player.y   = 0x68;
+                gs->walk_dir   = 0;
+                gs->walk_frame = 0;
+                fprintf(stdout, "Respawn: lives=%d\n", gs->lives);
+            }
+        }
+        return;  /* Skip normal game_tick logic during flash */
+    }
+
     /* Death check */
     if (gs->energy == 0) {
         if (gs->lives > 0)
             gs->lives--;
-        if (gs->lives == 0) {
-            gs->running = 0;
-            fprintf(stdout, "GAME OVER \u2014 score: %02X%02X%02X\n",
-                gs->score[0], gs->score[1], gs->score[2]);
-        } else {
-            gs->energy     = 0xF0;
-            gs->player.x   = 0x58;
-            gs->player.y   = 0x68;
-            gs->walk_dir   = 0;
-            gs->walk_frame = 0;
-            fprintf(stdout, "Respawn: lives=%d\n", gs->lives);
-        }
+        /* Start death flash (30 frames); actual respawn/gameover happens after */
+        gs->death_flash = 30;
     }
 }
 
