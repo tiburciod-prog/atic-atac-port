@@ -1275,22 +1275,72 @@ static const uint8_t trapdoor_open[20][2] = {
     {0x1E,0x00},{0x26,0x78},{0x0F,0xD4},{0x0D,0xC2},{0x03,0xE7},{0x3E,0xF7},{0xFF,0xF6},{0x77,0xF4},{0x20,0x00},{0x0F,0xF8},{0x0D,0xF8},{0x08,0xF8},{0x0D,0xF8},{0x07,0xF0},{0x07,0x70},{0x02,0x20},{0x03,0x60},{0x01,0xC0},{0x01,0xC0},{0x00,0x80}
 };
 
+/* draw_door_frame() — draw angular C-bracket ornaments flanking a door sprite.
+ * Called for each door entity after the door sprite itself is drawn.
+ * dx, dy = door entity ZX pixel position (top-left of 16×16 sprite).
+ * c = colour to draw the brackets in.
+ * orientation: 0=horizontal door (on top/bottom wall), 1=vertical door (on left/right wall).
+ */
+static void draw_door_frame(SDL_Renderer *ren, int dx, int dy, SDL_Color c, int orientation) {
+    SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, 255);
+    int s = SCALE;
+    if (orientation == 0) {
+        /* Horizontal door (on top/bottom wall edge): brackets above and below */
+        /* Top bracket: _| shape at top edge of door */
+        int bw = 6, bh = 4;
+        /* left top bracket */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         dx*s,        dy*s);      /* horizontal top */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         (dx-bw)*s,   (dy+bh)*s); /* vertical left */
+        /* right top bracket */
+        SDL_RenderDrawLine(ren, (dx+16)*s,    dy*s,         (dx+16+bw)*s, dy*s);     /* horizontal top */
+        SDL_RenderDrawLine(ren, (dx+16+bw)*s, dy*s,         (dx+16+bw)*s, (dy+bh)*s); /* vertical right */
+        /* bottom bracket */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,   (dy+16)*s,    dx*s,         (dy+16)*s);
+        SDL_RenderDrawLine(ren, (dx-bw)*s,   (dy+16-bh)*s, (dx-bw)*s,    (dy+16)*s);
+        SDL_RenderDrawLine(ren, (dx+16)*s,   (dy+16)*s,    (dx+16+bw)*s, (dy+16)*s);
+        SDL_RenderDrawLine(ren, (dx+16+bw)*s,(dy+16-bh)*s, (dx+16+bw)*s, (dy+16)*s);
+    } else {
+        /* Vertical door (on left/right wall edge): brackets left and right */
+        int bw = 4, bh = 6;
+        /* left bracket: ⌐ shape */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         (dx-bw)*s,   (dy+16)*s); /* vertical */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,    dy*s,         dx*s,        dy*s);      /* top horizontal */
+        SDL_RenderDrawLine(ren, (dx-bw)*s,   (dy+16)*s,    dx*s,        (dy+16)*s); /* bottom horizontal */
+        /* right bracket: ¬ shape */
+        SDL_RenderDrawLine(ren, (dx+16+bw)*s, dy*s,        (dx+16+bw)*s,(dy+16)*s); /* vertical */
+        SDL_RenderDrawLine(ren, (dx+16)*s,    dy*s,        (dx+16+bw)*s, dy*s);     /* top horizontal */
+        SDL_RenderDrawLine(ren, (dx+16)*s,   (dy+16)*s,   (dx+16+bw)*s,(dy+16)*s); /* bottom horizontal */
+    }
+}
+
 /*
  * render_decorations() — draw room decoration entities (graphic 0x10-0x7F).
  */
 static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         const RoomEntity *e = &gs->room_entities[i];
-        /* Render normal doors (0x01-0x03) with real sprites */
+        /* Render normal doors (0x01-0x03) with real sprites + frame ornaments */
         if (e->graphic >= 0x01 && e->graphic <= 0x03) {
             static const uint8_t (*norm_doors[3])[2] = { door_normal_0, door_normal_1, door_normal_2 };
             draw_sprite(ren, norm_doors[e->graphic - 1], 18, e->x, e->y, e->attr, 1);
+            /* Frame ornament: decode attr colour for bracket */
+            uint8_t fa = e->attr ? e->attr : gs->room_attr;
+            int bright = (fa & 0x40) ? 1 : 0;
+            SDL_Color fc = zx_pal[(fa & 7) | (bright ? 8 : 0)];
+            /* Determine orientation from position: doors near top/bottom (y<50 or y>120) = horizontal */
+            int orient = (e->y < 50 || e->y > 118) ? 0 : 1;
+            draw_door_frame(ren, e->x, e->y, fc, orient);
             continue;
         }
-        /* Render locked doors (0x08-0x0B) with real sprites */
+        /* Render locked doors (0x08-0x0B) with real sprites + frame ornaments */
         if (e->graphic >= 0x08 && e->graphic <= 0x0B) {
             static const uint8_t (*lock_doors[4])[2] = { door_locked_0, door_locked_1, door_locked_2, door_locked_3 };
             draw_sprite(ren, lock_doors[e->graphic - 0x08], 18, e->x, e->y, e->attr, 1);
+            uint8_t fa = e->attr ? e->attr : gs->room_attr;
+            int bright = (fa & 0x40) ? 1 : 0;
+            SDL_Color fc = zx_pal[(fa & 7) | (bright ? 8 : 0)];
+            int orient = (e->y < 50 || e->y > 118) ? 0 : 1;
+            draw_door_frame(ren, e->x, e->y, fc, orient);
             continue;
         }
         if (e->graphic < 0x10 || e->graphic >= 0x80) continue;
