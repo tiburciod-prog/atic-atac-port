@@ -1241,10 +1241,15 @@ static void render_decorations(SDL_Renderer *ren, const GameState *gs) {
             default: break;
             } /* end switch */
         } /* end decoration block */
-        /* Fallback: coloured square for unknown decoration IDs */
+        /* Fallback: coloured square for unknown decoration IDs.
+         * Use room attr when entity attr is 0 (would be invisible black-on-black).
+         * Apply ink/paper swap: decoration colour is in paper bits (3-5). */
         {
-            int bright2 = (e->attr & 0x40) ? 1 : 0;
-            int ci2 = e->attr & 0x07;
+            uint8_t fa = (e->attr != 0) ? e->attr : gs->room_attr;
+            /* swap ink and paper */
+            uint8_t fa2 = (uint8_t)((fa & 0xC0u) | ((fa & 0x07u) << 3) | ((fa >> 3) & 0x07u));
+            int bright2 = (fa2 & 0x40) ? 1 : 0;
+            int ci2 = fa2 & 0x07;
             int idx2 = ci2 + (bright2 ? 8 : 0);
             SDL_Color c2 = zx_pal[idx2];
             SDL_SetRenderDrawColor(ren, c2.r, c2.g, c2.b, 255);
