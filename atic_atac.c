@@ -866,7 +866,10 @@ static void render_hud(SDL_Renderer *ren, const GameState *gs) {
     const int HW  = 106;      /* HUD width (to x=255) */
     const int HCX = HX + HW/2; /* HUD centre x = 203 */
 
-    /* ── No panel background fill — HUD draws on top of room ── */
+    /* ── Panel background: black fill over room so HUD is readable ── */
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_Rect panel = { HX * SCALE, 0, HW * SCALE, SCREEN_H * SCALE };
+    SDL_RenderFillRect(ren, &panel);
 
     /* ── Scroll border: cyan double outline ── */
     SDL_SetRenderDrawColor(ren, 0, 215, 215, 255);
