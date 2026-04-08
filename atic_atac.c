@@ -819,79 +819,154 @@ static void draw_text(SDL_Renderer *ren, const char *s, int px, int py,
 }
 
 /*
- * render_hud() — draw energy bar, score, and lives outside the room.
+ * render_hud() — draw right-side scroll panel HUD.
+ * Layout (ZX pixel coords, right panel x=150–255, y=0–191):
+ *   x=150: left edge of HUD panel
+ *   Scroll border, key icon, TIME, SCORE, inventory grid, lives, ACG keys
  */
 static void render_hud(SDL_Renderer *ren, const GameState *gs) {
-    /* ── Energy bar (right side, ZX coords X=220-228, Y=24-176) ── */
-    int bar_x = 220, bar_y = 24, bar_w = 8, bar_h = 152;
-    /* Background: dark grey */
-    SDL_SetRenderDrawColor(ren, 64, 64, 64, 255);
-    SDL_Rect bar_bg = { bar_x * SCALE, bar_y * SCALE, bar_w * SCALE, bar_h * SCALE };
-    SDL_RenderFillRect(ren, &bar_bg);
-    /* Fill: bright green proportional to energy */
-    int fill_h = (int)((gs->energy * bar_h) / 0xF0);
-    if (fill_h > 0) {
-        SDL_SetRenderDrawColor(ren, 0, 215, 0, 255);
-        SDL_Rect bar_fill = {
-            bar_x * SCALE,
-            (bar_y + bar_h - fill_h) * SCALE,
-            bar_w * SCALE,
-            fill_h * SCALE
+    /* ── HUD panel layout constants (ZX pixel coords) ── */
+    const int HX  = 150;      /* HUD left edge */
+    const int HW  = 106;      /* HUD width (to x=255) */
+    const int HCX = HX + HW/2; /* HUD centre x = 203 */
+
+    /* ── Panel background: black ── */
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_Rect panel = { HX * SCALE, 0, HW * SCALE, SCREEN_H * SCALE };
+    SDL_RenderFillRect(ren, &panel);
+
+    /* ── Scroll border: cyan double outline ── */
+    SDL_SetRenderDrawColor(ren, 0, 215, 215, 255);
+    SDL_Rect border1 = { HX*SCALE,       0,          HW*SCALE,       SCREEN_H*SCALE       };
+    SDL_Rect border2 = { (HX+2)*SCALE,   2*SCALE,    (HW-4)*SCALE,   (SCREEN_H-4)*SCALE   };
+    SDL_RenderDrawRect(ren, &border1);
+    SDL_RenderDrawRect(ren, &border2);
+
+    /* ── Key icon at top-centre (simple yellow cross shape, ZX y=6) ── */
+    {
+        int kx = HCX, ky = 7;
+        SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
+        /* Vertical bar of cross */
+        SDL_Rect kv = { (kx-1)*SCALE, (ky-3)*SCALE, 2*SCALE, 6*SCALE };
+        SDL_RenderFillRect(ren, &kv);
+        /* Horizontal bar of cross */
+        SDL_Rect kh = { (kx-3)*SCALE, (ky-1)*SCALE, 6*SCALE, 2*SCALE };
+        SDL_RenderFillRect(ren, &kh);
+        /* Key bow (circle-ish): top of key, 3px above cross */
+        SDL_Rect kb = { (kx-2)*SCALE, (ky-6)*SCALE, 4*SCALE, 4*SCALE };
+        SDL_RenderDrawRect(ren, &kb);
+    }
+
+    /* ── TIME label + clock (cyan, ZX y=18) ── */
+    {
+        /* Draw HH:MM:SS at HX+8, y=18 */
+        int clk_digits[6] = {
+            gs->clock_h / 10, gs->clock_h % 10,
+            gs->clock_m / 10, gs->clock_m % 10,
+            gs->clock_s / 10, gs->clock_s % 10,
         };
-        SDL_RenderFillRect(ren, &bar_fill);
+        int tx = HX + 8;
+        for (int i = 0; i < 6; i++) {
+            int cx2 = tx + i * 5 + (i >= 2 ? 2 : 0) + (i >= 4 ? 2 : 0);
+            draw_digit(ren, clk_digits[i] % 10, cx2, 18, 0, 215, 215);
+        }
     }
 
-    /* ── Score (top strip, 6 BCD digits centred at X=84, Y=4) ── */
-    /* BCD score is 3 bytes: score[0]=tens-of-thousands/thousands,
-       score[1]=hundreds/tens, score[2]=ones (low nibble unused in original but safe) */
-    int digits[6];
-    digits[0] = (gs->score[0] >> 4) & 0xF;
-    digits[1] =  gs->score[0]       & 0xF;
-    digits[2] = (gs->score[1] >> 4) & 0xF;
-    digits[3] =  gs->score[1]       & 0xF;
-    digits[4] = (gs->score[2] >> 4) & 0xF;
-    digits[5] =  gs->score[2]       & 0xF;
-    int score_x = 70;  /* left edge of 6-digit score display */
-    /* Flash between white and yellow when score recently changed */
-    uint8_t sr = 255, sg = 255, sb = (gs->score_flash > 0 && (gs->score_flash / 4) & 1) ? 0u : 255u;
-    for (int i = 0; i < 6; i++) {
-        draw_digit(ren, digits[i] % 10, score_x + i * 5, 4, sr, sg, sb);
+    /* ── SCORE label + 6 BCD digits (white/yellow flash, ZX y=30) ── */
+    {
+        int digits[6];
+        digits[0] = (gs->score[0] >> 4) & 0xF;
+        digits[1] =  gs->score[0]       & 0xF;
+        digits[2] = (gs->score[1] >> 4) & 0xF;
+        digits[3] =  gs->score[1]       & 0xF;
+        digits[4] = (gs->score[2] >> 4) & 0xF;
+        digits[5] =  gs->score[2]       & 0xF;
+        uint8_t sr = 255, sg = 255;
+        uint8_t sb = (gs->score_flash > 0 && (gs->score_flash / 4) & 1) ? 0u : 255u;
+        int sx = HX + 8;
+        for (int i = 0; i < 6; i++) {
+            draw_digit(ren, digits[i] % 10, sx + i * 5, 30, sr, sg, sb);
+        }
     }
 
-    /* ── Lives (bottom-left, red squares 5×5px each) ── */
-    for (int i = 0; i < gs->lives && i < 5; i++) {
+    /* ── Inventory grid: up to 9 slots in 3 columns × 3 rows (ZX y=44–104) ── */
+    /* Each slot is 12×12px with 2px gap. Top-left at HX+10, y=44 */
+    {
+        const int INV_X = HX + 10;
+        const int INV_Y = 44;
+        const int SLOT  = 12;
+        const int GAP   = 2;
+        /* Draw slot outlines */
+        SDL_SetRenderDrawColor(ren, 80, 80, 80, 255);
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                int sx2 = INV_X + col * (SLOT + GAP);
+                int sy  = INV_Y + row * (SLOT + GAP);
+                SDL_Rect slot = { sx2*SCALE, sy*SCALE, SLOT*SCALE, SLOT*SCALE };
+                SDL_RenderDrawRect(ren, &slot);
+            }
+        }
+        /* Draw inventory items — gs->inventory[i][2] = graphic ID (3 slots max) */
+        for (int i = 0; i < 3; i++) {
+            if (gs->inventory[i][2] == 0) continue;
+            int col = i % 3;
+            int row = i / 3;
+            int sx2 = INV_X + col * (SLOT + GAP) + 2;
+            int sy  = INV_Y + row * (SLOT + GAP) + 2;
+            SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
+            SDL_Rect item = { sx2*SCALE, sy*SCALE, 8*SCALE, 8*SCALE };
+            SDL_RenderFillRect(ren, &item);
+        }
+    }
+
+    /* ── Lives: row of red squares at ZX y=114 ── */
+    {
+        int lx = HX + 10, ly = 114;
         SDL_SetRenderDrawColor(ren, 215, 0, 0, 255);
-        SDL_Rect heart = { (4 + i * 7) * SCALE, 180 * SCALE, 5 * SCALE, 5 * SCALE };
-        SDL_RenderFillRect(ren, &heart);
+        for (int i = 0; i < gs->lives && i < 5; i++) {
+            SDL_Rect heart = { (lx + i * 8)*SCALE, ly*SCALE, 6*SCALE, 6*SCALE };
+            SDL_RenderFillRect(ren, &heart);
+        }
     }
 
-    /* ── Exploration % (bottom-right, two digits) ── */
+    /* ── ACG key pieces (yellow squares, ZX y=126) ── */
+    {
+        int kx = HX + 10, ky = 126;
+        SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
+        for (int i = 0; i < gs->keys_collected && i < 3; i++) {
+            SDL_Rect kb = { (kx + i * 10)*SCALE, ky*SCALE, 8*SCALE, 8*SCALE };
+            SDL_RenderFillRect(ren, &kb);
+        }
+    }
+
+    /* ── Energy bar: thin vertical bar at HX+HW-10, y=18 to y=173 ── */
+    {
+        int bx = HX + HW - 12, by = 18, bh = 155, bw = 6;
+        /* Background */
+        SDL_SetRenderDrawColor(ren, 40, 40, 40, 255);
+        SDL_Rect bg = { bx*SCALE, by*SCALE, bw*SCALE, bh*SCALE };
+        SDL_RenderFillRect(ren, &bg);
+        /* Fill */
+        int fill_h = (int)((gs->energy * bh) / 0xF0);
+        if (fill_h > 0) {
+            SDL_SetRenderDrawColor(ren, 0, 215, 0, 255);
+            SDL_Rect fill = { bx*SCALE, (by+bh-fill_h)*SCALE, bw*SCALE, fill_h*SCALE };
+            SDL_RenderFillRect(ren, &fill);
+        }
+    }
+
+    /* ── Exploration % (bottom of panel, ZX y=178) ── */
     {
         int visited = 0;
         for (int i = 0; i < 19; i++)
             for (int b = 0; b < 8; b++)
                 if (gs->visited_rooms[i] & (1u << b)) visited++;
         int pct = (visited * 100) / 148;
-        draw_digit(ren, pct / 10, 230, 180, 100, 200, 100);
-        draw_digit(ren, pct % 10, 236, 180, 100, 200, 100);
-    }
-    /* ── ACG key pieces collected (bottom-right, yellow squares) ── */
-    for (int i = 0; i < gs->keys_collected && i < 3; i++) {
-        SDL_SetRenderDrawColor(ren, 215, 215, 0, 255);
-        SDL_Rect kb = { (220 + i * 8) * SCALE, 180 * SCALE, 6 * SCALE, 6 * SCALE };
-        SDL_RenderFillRect(ren, &kb);
+        draw_digit(ren, pct / 10, HX + 10, 178, 80, 160, 80);
+        draw_digit(ren, pct % 10, HX + 16, 178, 80, 160, 80);
     }
 
-    /* ── Clock (top-right corner, tiny digits) ── */
-    int clk_digits[6] = {
-        gs->clock_h / 10, gs->clock_h % 10,
-        gs->clock_m / 10, gs->clock_m % 10,
-        gs->clock_s / 10, gs->clock_s % 10,
-    };
-    for (int i = 0; i < 6; i++) {
-        int cx = 192 + i * 5 + (i >= 2 ? 2 : 0) + (i >= 4 ? 2 : 0); /* separators */
-        draw_digit(ren, clk_digits[i] % 10, cx, 4, 0, 215, 215);
-    }
+    (void)HCX; /* suppress unused-variable warning if key icon is disabled */
 }
 
 /*
