@@ -2072,14 +2072,16 @@ static void render_room(SDL_Renderer *ren, const GameState *gs) {
     int fo_w = floor_outline[si][2];
     int fo_h = floor_outline[si][3];
 
-    /* Draw outer border rect and inner floor rect outline (thick) */
+    /* Draw outer border rect and inner floor rect outline (thick).
+     * Outer border inset by SCALE pixels so it's not clipped by window edge. */
     SDL_SetRenderDrawColor(ren, ink.r, ink.g, ink.b, 255);
+    int OB = SCALE;  /* outer border inset */
     for (int t = 0; t < SCALE; t++) {
         /* outer border lines */
-        SDL_RenderDrawLine(ren, t, t, bbc_to_sdl_x(119)+t, t);                                       /* top */
-        SDL_RenderDrawLine(ren, t, t, t, bbc_to_sdl_y(191)+t);                                       /* left */
-        SDL_RenderDrawLine(ren, t, bbc_to_sdl_y(191)+t, bbc_to_sdl_x(119)+t, bbc_to_sdl_y(191)+t); /* bottom */
-        SDL_RenderDrawLine(ren, bbc_to_sdl_x(119)+t, t, bbc_to_sdl_x(119)+t, bbc_to_sdl_y(191)+t); /* right */
+        SDL_RenderDrawLine(ren, OB+t, OB+t, bbc_to_sdl_x(119)-OB+t, OB+t);                                           /* top */
+        SDL_RenderDrawLine(ren, OB+t, OB+t, OB+t, bbc_to_sdl_y(191)-OB+t);                                           /* left */
+        SDL_RenderDrawLine(ren, OB+t, bbc_to_sdl_y(191)-OB+t, bbc_to_sdl_x(119)-OB+t, bbc_to_sdl_y(191)-OB+t);     /* bottom */
+        SDL_RenderDrawLine(ren, bbc_to_sdl_x(119)-OB+t, OB+t, bbc_to_sdl_x(119)-OB+t, bbc_to_sdl_y(191)-OB+t);     /* right */
         /* inner floor rect outline */
         int fx0 = bbc_to_sdl_x(fo_x)+t, fy0 = bbc_to_sdl_y(fo_y)+t;
         int fx1 = bbc_to_sdl_x(fo_x+fo_w)+t, fy1 = bbc_to_sdl_y(fo_y+fo_h)+t;
