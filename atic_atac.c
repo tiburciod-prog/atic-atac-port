@@ -1716,6 +1716,19 @@ int main(int argc, char *argv[]) {
             /* Door-based room transitions: check proximity to door entities */
             for (int di = 0; di < gs.num_room_entities; di++) {
                 const RoomEntity *re = &gs.room_entities[di];
+                /* Secret passages: character-specific entities */
+                {
+                    static const uint8_t pass_gfx[3] = {0x10, 0x17, 0x1A}; /* Knight=clock, Wizard=bookcase, Serf=barrel */
+                    if (re->graphic == pass_gfx[gs.char_type & 0x03u] ||
+                        (gs.char_type > 2 && re->graphic == 0x10)) {
+                        int dpx = nx - (int)re->x;
+                        int dpy = ny - (int)re->y;
+                        if (dpx*dpx + dpy*dpy < 144) {
+                            do_room_transition(&gs, re->zx_addr);
+                            break;
+                        }
+                    }
+                }
                 int is_normal = (re->graphic >= 0x01 && re->graphic <= 0x03);
                 int is_locked = (re->graphic >= 0x08 && re->graphic <= 0x0B);
                 if (!is_normal && !is_locked) continue;
