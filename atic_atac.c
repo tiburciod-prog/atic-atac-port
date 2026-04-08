@@ -977,8 +977,10 @@ static void update_creatures(GameState *gs) {
         else if (dy < -1) e->y--;
         /* Damage player on contact (within 8px) */
         if (dx*dx + dy*dy < 64) {
-            if ((gs->frame % 16) == 0 && gs->energy >= 32)
-                gs->energy -= 32;
+            if ((gs->frame % 16) == 0 && gs->energy > 0) {
+                if (gs->energy > 32) gs->energy -= 32;
+                else gs->energy = 0;
+            }
         }
     }
 }
@@ -1263,7 +1265,7 @@ static const uint8_t acg_key_sprite[8][2] = {
 static void render_items(SDL_Renderer *ren, const GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         const RoomEntity *e = &gs->room_entities[i];
-        if (e->graphic != 0x5C) continue;
+        if (e->graphic < 0x8C || e->graphic > 0x8E) continue;
         draw_sprite(ren, acg_key_sprite, 8, e->x, e->y, 0x46, 1);
     }
 }
@@ -1275,7 +1277,7 @@ static void render_items(SDL_Renderer *ren, const GameState *gs) {
 static void check_item_pickup(GameState *gs) {
     for (int i = 0; i < gs->num_room_entities; i++) {
         RoomEntity *e = &gs->room_entities[i];
-        if (e->graphic != 0x5C) continue;
+        if (e->graphic < 0x8C || e->graphic > 0x8E) continue;
         int dx = (int)gs->player.x - (int)e->x;
         int dy = (int)gs->player.y - (int)e->y;
         if (dx*dx + dy*dy < 100) {
